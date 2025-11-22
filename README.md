@@ -1,0 +1,2 @@
+# phpcoin-miners
+PHPCoin miners
