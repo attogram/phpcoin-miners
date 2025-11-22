@@ -7,3 +7,5 @@ standalone miners
 
 - c miner v1
   
+notes
+* https://github.com/phpcoinn/node/blob/55578e81d04b615f89971653e372cfcd77a05422/docs/mining/miner-workflow.md
