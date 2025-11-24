@@ -167,13 +167,24 @@ class MinerSetup {
         ];
 
         // 2. Load config from miner.conf file
-        if(file_exists(__DIR__."/miner.conf")) {
-            $minerConf = parse_ini_file(__DIR__."/miner.conf");
-            foreach($minerConf as $key => $value) {
-                if(isset($this->config[$key])) {
-                    $this->config[$key] = $value;
+        $conf_file = __DIR__."/miner.conf";
+        echo "Looking for config file at: " . $conf_file . PHP_EOL;
+        if(is_readable($conf_file)) {
+            echo "Config file is readable." . PHP_EOL;
+            $minerConf = parse_ini_file($conf_file);
+            echo "Config file contents: " . print_r($minerConf, true) . PHP_EOL;
+            if (empty($minerConf)) {
+                echo "Config file is empty or could not be parsed." . PHP_EOL;
+            } else {
+                foreach($minerConf as $key => $value) {
+                    if(isset($this->config[$key])) {
+                        $this->config[$key] = $value;
+                        echo "Set config from file: " . $key . " = " . $value . PHP_EOL;
+                    }
                 }
             }
+        } else {
+            echo "Config file not found or is not readable." . PHP_EOL;
         }
     }
 
@@ -202,21 +213,15 @@ class MinerSetup {
         $this->config['cpu'] = (int)$this->config['cpu'];
         $this->config['threads'] = (int)$this->config['threads'];
 
-        echo "PHPCoin Miner Version ".MINER_VERSION.PHP_EOL;
-        echo "Mining server:  ".$this->config['node'].PHP_EOL;
-        echo "Mining address: ".$this->config['address'].PHP_EOL;
-        echo "CPU:            ".$this->config['cpu'].PHP_EOL;
-        echo "Threads:        ".$this->config['threads'].PHP_EOL;
-        echo "Report Interval:".$this->config['report-interval']." seconds".PHP_EOL;
-
         if(empty($this->config['node']) || empty($this->config['address'])) {
             echo "Usage: php miner.self.php --node=<node> --address=<address> [--cpu=<cpu>] [--threads=<threads>] [--report-interval=<seconds>] [--flat-log]".PHP_EOL;
             return;
         }
 
         // Verify node communication and public key
-        echo "Connecting to primary node to verify public key..." . PHP_EOL;
-        $res = Utils::url_get($this->config['node'] . "/api.php?q=getPublicKey&address=".$this->config['address']);
+        $url = $this->config['node'] . "/api.php?q=getPublicKey&address=".$this->config['address'];
+        echo "Verifying public key with primary node: " . $url . PHP_EOL;
+        $res = Utils::url_get($url);
         if(empty($res)) {
             echo "No response from node".PHP_EOL;
             return;
@@ -307,9 +312,9 @@ class Miner {
         rmdir($tmp_dir);
     }
 
-    private function getPeers() {
-        echo "Fetching peer list from primary node..." . PHP_EOL;
+    public function getPeers() {
         $url = $this->node."/api.php?q=getPeers";
+        echo "Fetching peer list from primary node: " . $url . PHP_EOL;
         $peers = Utils::url_get($url);
         if(!$peers) {
             echo "Could not fetch peer list. Using primary node only." . PHP_EOL;
@@ -398,10 +403,6 @@ class Miner {
 			'accepted' => 0, 'rejected' => 0, 'dropped' => 0,
 		];
 		$this->sleep_time = (100 - $this->cpu) * 5;
-
-        $this->getPeers();
-
-        echo "Starting mining loop..." . PHP_EOL;
 
 		while ($this->is_running) {
 			$info = $this->getMiningInfo();
@@ -554,6 +555,18 @@ class Miner {
         }
 
 		sleep(3); // Wait before starting next block
+        $this->mining_stats['submitted_blocks'][] = [
+            "time" => date("r"),
+            "node" => $node,
+            "height" => $postData['height'],
+            "elapsed" => $postData['elapsed'],
+            "hashes" => $this->attempt_count,
+            "hit" => $postData['hit'],
+            "target" => $postData['target'],
+            "status" => $accepted ? "accepted" : "rejected",
+            "response" => @$response_data['data']
+        ];
+        file_put_contents(getcwd() . "/miner_stat.json", json_encode($this->mining_stats));
 	}
 
 	private function updateMiningStats($height, $elapsed, $hit, $target, $tmp_dir = null) {
@@ -589,7 +602,18 @@ if (!$setup->isValid()) {
 }
 $config = $setup->getConfig();
 
+echo "PHPCoin Miner Version ".MINER_VERSION.PHP_EOL;
+echo "Mining server:  ".$config['node'].PHP_EOL;
+echo "Mining address: ".$config['address'].PHP_EOL;
+echo "CPU:            ".$config['cpu'].PHP_EOL;
+echo "Threads:        ".$config['threads'].PHP_EOL;
+echo "Report Interval:".$config['report-interval']." seconds".PHP_EOL;
+
 $miner = new Miner($config);
+
+$miner->getPeers();
+
+echo "Starting mining loop..." . PHP_EOL;
 
 if($config['threads'] == 1) {
     $miner->start();
