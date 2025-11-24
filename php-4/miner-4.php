@@ -104,7 +104,7 @@ class Crypto {
         if($height < 1614556800) { // UPDATE_3_ARGON_HARD
             $options['salt']=substr($address, 0, 16);
         }
-        $argon = password_hash("{$prev_block_date}-{$elapsed}", PASSWORD_ARGON2I, $options);
+        $argon = @password_hash("{$prev_block_date}-{$elapsed}", PASSWORD_ARGON2I, $options);
         if ($argon === false) {
             // Handle hash failure, perhaps log an error or die
             die("Error: password_hash failed.\n");
@@ -167,8 +167,8 @@ class MinerSetup {
         ];
 
         // 2. Load config from miner.conf file
-        if(file_exists(getcwd()."/miner.conf")) {
-            $minerConf = parse_ini_file(getcwd()."/miner.conf");
+        if(file_exists(__DIR__."/miner.conf")) {
+            $minerConf = parse_ini_file(__DIR__."/miner.conf");
             foreach($minerConf as $key => $value) {
                 if(isset($this->config[$key])) {
                     $this->config[$key] = $value;
@@ -488,7 +488,7 @@ class Miner {
         $this->hash_count++;
         $total_time = $hash_time_end - $this->hashing_start_time;
         if($total_time > 0) {
-            $this->speed = number_format($this->hash_count / $total_time, 2);
+            $this->speed = (float)number_format($this->hash_count / $total_time, 2);
         }
     }
 
@@ -544,7 +544,7 @@ class Miner {
 	private function updateMiningStats($height, $elapsed, $hit, $target, $tmp_dir = null) {
         $this->mining_stats['hashes']++;
         $this->mining_stats['speed'] = $this->speed;
-        $this->mining_stats['best_hit'] = $this->best_hit;
+        $this->mining_stats['best_hit'] = (string)$this->best_hit;
         if ($this->is_forked) {
             file_put_contents($tmp_dir . "/" . getmypid() . ".json", json_encode($this->mining_stats));
         } else {
