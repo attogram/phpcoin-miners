@@ -215,6 +215,7 @@ class MinerSetup {
         }
 
         // Verify node communication and public key
+        echo "Connecting to primary node to verify public key..." . PHP_EOL;
         $res = Utils::url_get($this->config['node'] . "/api.php?q=getPublicKey&address=".$this->config['address']);
         if(empty($res)) {
             echo "No response from node".PHP_EOL;
@@ -296,7 +297,10 @@ class Miner {
             }
         }
 
-        $this->monitor($pids, $tmp_dir);
+        $info = $this->getMiningInfo();
+        $height = $info['data']['height'] + 1;
+        $target = $info['data']['difficulty'];
+        $this->monitor($pids, $tmp_dir, $height, $target);
 
         // Cleanup
         array_map('unlink', glob("$tmp_dir/*"));
@@ -304,24 +308,31 @@ class Miner {
     }
 
     private function getPeers() {
+        echo "Fetching peer list from primary node..." . PHP_EOL;
         $url = $this->node."/api.php?q=getPeers";
         $peers = Utils::url_get($url);
         if(!$peers) {
+            echo "Could not fetch peer list. Using primary node only." . PHP_EOL;
+            $this->mining_nodes = [$this->node];
             return;
         }
         $peers = json_decode($peers, true);
         if ($peers['status'] != "ok") {
+            echo "Could not fetch peer list. Using primary node only." . PHP_EOL;
+            $this->mining_nodes = [$this->node];
             return;
         }
+        echo "Found " . count($peers['data']) . " potential peers. Verifying mining-enabled nodes..." . PHP_EOL;
         $this->mining_nodes = [$this->node];
         foreach($peers['data'] as $peer) {
             if (!empty($peer['generator']) && !in_array($peer['hostname'], $this->mining_nodes)) {
                 $this->mining_nodes[] = $peer['hostname'];
             }
         }
+        echo "Verified " . count($this->mining_nodes) . " mining-enabled nodes: " . implode(", ", $this->mining_nodes) . PHP_EOL;
     }
 
-    private function monitor($pids, $tmp_dir) {
+    private function monitor($pids, $tmp_dir, $height, $target) {
         $start_time = time();
         while (count($pids) > 0) {
             // Check for finished children
@@ -358,8 +369,8 @@ class Miner {
                 }
 
                 $status = sprintf(
-                    "Threads:%-2d | Speed: %-8s | Best: %-10s | Submits:%-5s | Accepted:%-5s | Rejected:%-5s | Dropped:%-5s",
-                    count($pids), $total_speed . ' H/s', $best_hit, $total_submits, $total_accepted, $total_rejected, $total_dropped
+                    "Height: %-7s Target: %-10s Threads:%-2d Speed: %-8s Best: %-10s Submits:%-5s Accepted:%-5s Rejected:%-5s Dropped:%-5s",
+                    $height, $target, count($pids), $total_speed . ' H/s', $best_hit, $total_submits, $total_accepted, $total_rejected, $total_dropped
                 );
 
                 echo $status . "\r";
@@ -389,6 +400,8 @@ class Miner {
 		$this->sleep_time = (100 - $this->cpu) * 5;
 
         $this->getPeers();
+
+        echo "Starting mining loop..." . PHP_EOL;
 
 		while ($this->is_running) {
 			$info = $this->getMiningInfo();
@@ -436,6 +449,8 @@ class Miner {
 	private function hashingLoop($block, $block_date, $nodeTime, $chain_id, $tmp_dir = null) {
 		$offset = $nodeTime - time();
         $last_report_time = 0;
+
+        $this->updateMiningStats($block->height, 0, 0, 0, $tmp_dir);
 
 		while (true) {
 			$this->attempt_count++;
@@ -549,7 +564,7 @@ class Miner {
             file_put_contents($tmp_dir . "/" . getmypid() . ".json", json_encode($this->mining_stats));
         } else {
             $status = sprintf(
-                "PID:%-6s | Height:%-7s | Elapsed:%-5s | Speed:%-8s | Hit:%-10s | Best:%-10s | Target:%-10s | Submits:%-5s | Accepted:%-5s | Rejected:%-5s | Dropped:%-5s",
+                "PID:%-6s Height:%-7s Elapsed:%-5s Speed:%-8s Hit:%-10s Best:%-10s Target:%-10s Submits:%-5s Accepted:%-5s Rejected:%-5s Dropped:%-5s",
                 getmypid(), $height, $elapsed, $this->speed . ' H/s', $hit, $this->best_hit, $target,
                 $this->mining_stats['submits'], $this->mining_stats['accepted'],
                 $this->mining_stats['rejected'], $this->mining_stats['dropped']
