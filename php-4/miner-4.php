@@ -304,8 +304,7 @@ class Miner {
 
         $info = $this->getMiningInfo();
         $height = $info['data']['height'] + 1;
-        $target = $info['data']['difficulty'];
-        $this->monitor($pids, $tmp_dir, $height, $target);
+        $this->monitor($pids, $tmp_dir, $height);
 
         // Cleanup
         array_map('unlink', glob("$tmp_dir/*"));
@@ -337,8 +336,9 @@ class Miner {
         echo "Verified " . count($this->mining_nodes) . " mining-enabled nodes: " . implode(", ", $this->mining_nodes) . PHP_EOL;
     }
 
-    private function monitor($pids, $tmp_dir, $height, $target) {
+    private function monitor($pids, $tmp_dir, $height) {
         $start_time = time();
+        $header_printed = false;
         while (count($pids) > 0) {
             // Check for finished children
             foreach ($pids as $key => $pid) {
@@ -373,12 +373,27 @@ class Miner {
                     }
                 }
 
-                $status = sprintf(
-                    "Height: %-7s Target: %-10s Threads:%-2d Speed: %-8s Best: %-10s Submits:%-5s Accepted:%-5s Rejected:%-5s Dropped:%-5s",
-                    $height, $target, count($pids), $total_speed . ' H/s', $best_hit, $total_submits, $total_accepted, $total_rejected, $total_dropped
-                );
+                if (!$header_printed) {
+                    echo sprintf(
+                        "%-6s %-7s %-5s %-8s %-10s %-10s %-10s %-5s %-5s %-5s %-5s" . PHP_EOL,
+                        "PID", "Height", "Elapsed", "Speed", "Hit", "Best", "Target", "Submits", "Accepted", "Rejected", "Dropped"
+                    );
+                    $header_printed = true;
+                }
 
-                echo $status . "\r";
+                $lines = 0;
+                foreach($files as $file) {
+                    $stats = json_decode(file_get_contents($file), true);
+                    if ($stats) {
+                        echo sprintf(
+                            "%-6s %-7s %-5s %-8s %-10s %-10s %-10s %-5s %-5s %-5s %-5s" . PHP_EOL,
+                            $stats['pid'], number_format($stats['height']), $stats['elapsed'], number_format($stats['speed']) . ' H/s', number_format($stats['hit']), number_format($stats['best_hit']), number_format($stats['target']),
+                            $stats['submits'], $stats['accepted'], $stats['rejected'], $stats['dropped']
+                        );
+                        $lines++;
+                    }
+                }
+
                 $start_time = time();
             }
 
@@ -504,7 +519,7 @@ class Miner {
         $this->hash_count++;
         $total_time = $hash_time_end - $this->hashing_start_time;
         if($total_time > 0) {
-            $this->speed = (float)number_format($this->hash_count / $total_time, 2);
+            $this->speed = round($this->hash_count / $total_time, 2);
         }
     }
 
@@ -573,12 +588,17 @@ class Miner {
         $this->mining_stats['hashes']++;
         $this->mining_stats['speed'] = $this->speed;
         $this->mining_stats['best_hit'] = (string)$this->best_hit;
+        $this->mining_stats['pid'] = getmypid();
+        $this->mining_stats['height'] = $height;
+        $this->mining_stats['elapsed'] = $elapsed;
+        $this->mining_stats['hit'] = (string)$hit;
+        $this->mining_stats['target'] = (string)$target;
         if ($this->is_forked) {
             file_put_contents($tmp_dir . "/" . getmypid() . ".json", json_encode($this->mining_stats));
         } else {
             $status = sprintf(
                 "PID:%-6s Height:%-7s Elapsed:%-5s Speed:%-8s Hit:%-10s Best:%-10s Target:%-10s Submits:%-5s Accepted:%-5s Rejected:%-5s Dropped:%-5s",
-                getmypid(), $height, $elapsed, $this->speed . ' H/s', $hit, $this->best_hit, $target,
+                getmypid(), number_format($height), $elapsed, number_format($this->speed) . ' H/s', number_format($hit), number_format($this->best_hit), number_format($target),
                 $this->mining_stats['submits'], $this->mining_stats['accepted'],
                 $this->mining_stats['rejected'], $this->mining_stats['dropped']
             );
