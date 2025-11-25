@@ -599,7 +599,7 @@ class Miner {
         } else {
             $status = sprintf(
                 "PID:%-6s Height:%-7s Elapsed:%-5s Speed:%-8s Hit:%-10s Best:%-10s Target:%-10s Submits:%-5s Accepted:%-5s Rejected:%-5s Dropped:%-5s",
-                getmypid(), number_format($height), $elapsed, number_format($this->speed) . ' H/s', number_format($hit), number_format($this->best_hit), number_format($target),
+                getmypid(), number_format($height), $elapsed, number_format($this->speed) . ' H/s', number_format(gmp_strval($hit)), number_format(gmp_strval($this->best_hit)), number_format(gmp_strval($target)),
                 $this->mining_stats['submits'], $this->mining_stats['accepted'],
                 $this->mining_stats['rejected'], $this->mining_stats['dropped']
             );
