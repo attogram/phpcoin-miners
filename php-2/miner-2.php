@@ -107,7 +107,7 @@ class Crypto {
         if($height < 1614556800) { // UPDATE_3_ARGON_HARD
             $options['salt']=substr($address, 0, 16);
         }
-        $argon = password_hash("{$prev_block_date}-{$elapsed}", HASHING_ALGO, $options);
+        $argon = @password_hash("{$prev_block_date}-{$elapsed}", HASHING_ALGO, $options);
         if ($argon === false) {
             // Handle hash failure, perhaps log an error or die
             die("Error: password_hash failed.\n");
