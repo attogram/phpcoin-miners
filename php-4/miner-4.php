@@ -454,6 +454,7 @@ class Miner {
 	private function findBlockSolution($block, $info, $tmp_dir = null) {
 		$this->attempt_count = 0;
 		$this->hashing_start_time = microtime(true);
+        $this->hash_count = 0;
         $this->best_hit = 0;
 
 		$solution = $this->hashingLoop($block, $info['data']['date'], $info['data']['time'], $info['data']['chain_id'], $tmp_dir);
@@ -516,7 +517,6 @@ class Miner {
 
     private function measureSpeed($hash_time_start) {
         $hash_time_end = microtime(true);
-        $this->hashing_start_time += ($hash_time_end - $hash_time_start);
         $this->hash_count++;
         $total_time = $hash_time_end - $this->hashing_start_time;
         if($total_time > 0) {
