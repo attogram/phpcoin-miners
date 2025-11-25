@@ -549,20 +549,30 @@ class Miner {
 
 		$this->mining_stats['submits']++;
         $accepted = false;
-        if (is_array($this->mining_nodes) && count($this->mining_nodes) > 0) {
-            foreach ($this->mining_nodes as $key => $node) {
-                $response = Utils::url_post($node . "/mine.php?q=submitHash&", http_build_query($postData), 5);
-                $response_data = json_decode($response, true);
-                if (json_last_error() === JSON_ERROR_NONE && isset($response_data['status']) && $response_data['status'] == "ok") {
-                    $accepted = true;
-                    break;
-                } else {
-                    if (isset($response_data['response']) && $response_data['response'] == "mining-not-enabled") {
-                        $this->removeNode($node);
-                    }
+        $response_data = null;
+        $node_to_submit = null;
+
+        // Create an ordered list of nodes to try: main node first, then unique peers.
+        $nodes_to_try = array_unique(array_merge([$this->node], $this->mining_nodes));
+
+        foreach ($nodes_to_try as $node) {
+            $node_to_submit = $node;
+            $response = Utils::url_post($node . "/mine.php?q=submitHash&", http_build_query($postData), 5);
+            $response_data = json_decode($response, true);
+
+            $result_message = "Result: " . ($response_data['data'] ?? $response_data['message'] ?? 'No response');
+            echo "Block {$solution['height']} Solved! POST to: {$node} {$result_message}" . PHP_EOL;
+
+            if (json_last_error() === JSON_ERROR_NONE && isset($response_data['status']) && $response_data['status'] == "ok") {
+                $accepted = true;
+                break; // Exit the loop if accepted
+            } else {
+                if (isset($response_data['response']) && $response_data['response'] == "mining-not-enabled") {
+                    $this->removeNode($node);
                 }
             }
         }
+
 
         if ($accepted) {
             $this->mining_stats['accepted']++;
@@ -573,7 +583,7 @@ class Miner {
 		sleep(3); // Wait before starting next block
         $this->mining_stats['submitted_blocks'][] = [
             "time" => date("r"),
-            "node" => $node,
+            "node" => $node_to_submit,
             "height" => $postData['height'],
             "elapsed" => $postData['elapsed'],
             "hashes" => $this->attempt_count,
