@@ -485,7 +485,8 @@ class Miner {
 			}
 
 			$hash_time_start = microtime(true);
-			$block->argon = Crypto::calculateArgonHash($this->address, $block_date, $elapsed, $block->height);
+			$new_block_date = $block_date + $elapsed;
+			$block->argon = Crypto::calculateArgonHash($this->address, $block_date, $elapsed, $new_block_date);
 			$block->nonce = Crypto::calculateNonce($block, $block_date, $elapsed, $chain_id);
 			$hit = Crypto::calculateHit($block);
             if ($hit > $this->best_hit) {
@@ -502,7 +503,7 @@ class Miner {
 			if ($hit > 0 && $target > 0 && $hit > $target) {
 				return [
 					'argon' => $block->argon, 'nonce' => $block->nonce, 'height' => $block->height,
-					'difficulty' => $block->difficulty, 'date' => $block_date + $elapsed,
+					'difficulty' => $block->difficulty, 'date' => $new_block_date,
 					'hit' => gmp_strval($hit), 'target' => gmp_strval($target), 'elapsed' => $elapsed,
 				];
 			}
