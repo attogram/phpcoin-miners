@@ -177,7 +177,7 @@ class MinerSetup {
                 echo "Config file is empty or could not be parsed." . PHP_EOL;
             } else {
                 foreach($minerConf as $key => $value) {
-                    if(isset($this->config[$key])) {
+                    if(array_key_exists($key, $this->config)) {
                         $this->config[$key] = $value;
                         echo "Set config from file: " . $key . " = " . $value . PHP_EOL;
                     }
@@ -214,7 +214,8 @@ class MinerSetup {
         $this->config['threads'] = (int)$this->config['threads'];
 
         if(empty($this->config['node']) || empty($this->config['address'])) {
-            echo "Usage: php miner.self.php --node=<node> --address=<address> [--cpu=<cpu>] [--threads=<threads>] [--report-interval=<seconds>] [--flat-log]".PHP_EOL;
+            $filename = basename(__FILE__);
+            echo "Usage: php {$filename} --node=<node> --address=<address> [--cpu=<cpu>] [--threads=<threads>] [--report-interval=<seconds>] [--flat-log]".PHP_EOL;
             return;
         }
 
