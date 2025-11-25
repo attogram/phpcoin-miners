@@ -504,7 +504,7 @@ class Miner {
 				return [
 					'argon' => $block->argon, 'nonce' => $block->nonce, 'height' => $block->height,
 					'difficulty' => $block->difficulty, 'date' => $block_date + $elapsed,
-					'hit' => (string)$hit, 'target' => (string)$target, 'elapsed' => $elapsed,
+					'hit' => gmp_strval($hit), 'target' => gmp_strval($target), 'elapsed' => $elapsed,
 				];
 			}
 
