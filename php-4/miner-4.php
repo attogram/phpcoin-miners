@@ -24,6 +24,7 @@
  *   -a, --address=<address> The PHPCoin address to mine rewards to.
  *   -c, --cpu=<percent>     The percentage of CPU to use (0-100). Default: 50.
  *   -t, --threads=<num>     The number of threads to use for mining. Default: 1.
+ *   -i, --report-interval=<seconds> The interval in seconds to report mining status. Default: 30.
  *   --flat-log              Enable flat logging for use in environments that do not support carriage returns.
  */
 
@@ -36,8 +37,7 @@ if(php_sapi_name() !== 'cli') exit;
 const BLOCK_TIME = 60;
 const BLOCK_TARGET_MUL = 1000;
 const MINER_VERSION = "1.5";
-const VERSION = "1.6.8"; // This is used in sendStat and submitBlock
-const HASHING_ALGO = PASSWORD_ARGON2I;
+const VERSION = "1.6.8";
 
 
 //
@@ -77,9 +77,6 @@ class Utils {
         return $result;
     }
 
-    public static function getStatFile() {
-        return getcwd() . "/miner_stat.json";
-    }
 }
 
 
@@ -107,7 +104,7 @@ class Crypto {
         if($height < 1614556800) { // UPDATE_3_ARGON_HARD
             $options['salt']=substr($address, 0, 16);
         }
-        $argon = password_hash("{$prev_block_date}-{$elapsed}", HASHING_ALGO, $options);
+        $argon = @password_hash("{$prev_block_date}-{$elapsed}", PASSWORD_ARGON2I, $options);
         if ($argon === false) {
             // Handle hash failure, perhaps log an error or die
             die("Error: password_hash failed.\n");
@@ -165,28 +162,41 @@ class MinerSetup {
             'address' => null,
             'cpu' => 50,
             'threads' => 1,
+            'report-interval' => 30,
             'flat-log' => false,
         ];
 
         // 2. Load config from miner.conf file
-        if(file_exists(getcwd()."/miner.conf")) {
-            $minerConf = parse_ini_file(getcwd()."/miner.conf");
-            foreach($minerConf as $key => $value) {
-                if(isset($this->config[$key])) {
-                    $this->config[$key] = $value;
+        $conf_file = __DIR__."/miner.conf";
+        echo "Looking for config file at: " . $conf_file . PHP_EOL;
+        if(is_readable($conf_file)) {
+            echo "Config file is readable." . PHP_EOL;
+            $minerConf = parse_ini_file($conf_file);
+            echo "Config file contents: " . print_r($minerConf, true) . PHP_EOL;
+            if (empty($minerConf)) {
+                echo "Config file is empty or could not be parsed." . PHP_EOL;
+            } else {
+                foreach($minerConf as $key => $value) {
+                    if(isset($this->config[$key])) {
+                        $this->config[$key] = $value;
+                        echo "Set config from file: " . $key . " = " . $value . PHP_EOL;
+                    }
                 }
             }
+        } else {
+            echo "Config file not found or is not readable." . PHP_EOL;
         }
     }
 
     private function parseArguments() {
         $options = getopt(
-            "n:a:c:t:", // Short options
+            "n:a:c:t:i:", // Short options
             [
                 "node:",
                 "address:",
                 "cpu:",
                 "threads:",
+                "report-interval:",
                 "flat-log",
             ]
         );
@@ -194,6 +204,7 @@ class MinerSetup {
         $this->config['address'] = $options['address'] ?? $options['a'] ?? $this->config['address'];
         $this->config['cpu'] = $options['cpu'] ?? $options['c'] ?? $this->config['cpu'];
         $this->config['threads'] = $options['threads'] ?? $options['t'] ?? $this->config['threads'];
+        $this->config['report-interval'] = $options['report-interval'] ?? $options['i'] ?? $this->config['report-interval'];
         if(isset($options['flat-log'])) $this->config['flat-log'] = true;
     }
 
@@ -202,19 +213,15 @@ class MinerSetup {
         $this->config['cpu'] = (int)$this->config['cpu'];
         $this->config['threads'] = (int)$this->config['threads'];
 
-        echo "PHPCoin Miner Version ".MINER_VERSION.PHP_EOL;
-        echo "Mining server:  ".$this->config['node'].PHP_EOL;
-        echo "Mining address: ".$this->config['address'].PHP_EOL;
-        echo "CPU:            ".$this->config['cpu'].PHP_EOL;
-        echo "Threads:        ".$this->config['threads'].PHP_EOL;
-
         if(empty($this->config['node']) || empty($this->config['address'])) {
-            echo "Usage: php miner.self.php --node=<node> --address=<address> [--cpu=<cpu>] [--threads=<threads>] [--flat-log]".PHP_EOL;
+            echo "Usage: php miner.self.php --node=<node> --address=<address> [--cpu=<cpu>] [--threads=<threads>] [--report-interval=<seconds>] [--flat-log]".PHP_EOL;
             return;
         }
 
         // Verify node communication and public key
-        $res = Utils::url_get($this->config['node'] . "/api.php?q=getPublicKey&address=".$this->config['address']);
+        $url = $this->config['node'] . "/api.php?q=getPublicKey&address=".$this->config['address'];
+        echo "Verifying public key with primary node: " . $url . PHP_EOL;
+        $res = Utils::url_get($url);
         if(empty($res)) {
             echo "No response from node".PHP_EOL;
             return;
@@ -247,6 +254,7 @@ class Miner {
     private $is_forked = false;
     private $use_flat_log;
     private $threads;
+    private $report_interval;
 
 	private $is_running = true;
 
@@ -255,8 +263,10 @@ class Miner {
     private $speed = 0;
     private $sleep_time;
     private $attempt_count = 0;
+    private $best_hit = 0;
 
     private $mining_stats;
+    private $mining_nodes = [];
 
 	function __construct($config)
 	{
@@ -265,31 +275,144 @@ class Miner {
         $this->cpu = $config['cpu'];
         $this->use_flat_log = $config['flat-log'];
         $this->threads = $config['threads'];
+        $this->report_interval = $config['report-interval'];
 	}
 
     /**
      * Forks the miner process to run on multiple threads.
      */
     public function fork() {
-        for($i=1; $i<=$this->threads; $i++) {
+        $pids = [];
+        $tmp_dir = sys_get_temp_dir() . "/phpcoin-miner-" . uniqid();
+        if (!mkdir($tmp_dir)) {
+            die("Could not create temporary directory for stats");
+        }
+
+        for ($i = 1; $i <= $this->threads; $i++) {
             $pid = pcntl_fork();
             if ($pid == -1) {
                 die("Could not fork");
             } else if (!$pid) {
                 // This is the child process
                 $this->is_forked = true;
-                $this->start();
+                $this->start($tmp_dir);
                 exit;
+            } else {
+                $pids[] = $pid;
             }
         }
-        // Parent process waits for all children to complete
-        while (pcntl_waitpid(0, $status) != -1);
+
+        $info = $this->getMiningInfo();
+        $height = $info['data']['height'] + 1;
+        $this->monitor($pids, $tmp_dir, $height);
+
+        // Cleanup
+        array_map('unlink', glob("$tmp_dir/*"));
+        rmdir($tmp_dir);
     }
+
+    public function getPeers() {
+        $url = $this->node."/api.php?q=getPeers";
+        echo "Fetching peer list from primary node: " . $url . PHP_EOL;
+        $peers = Utils::url_get($url);
+        if(!$peers) {
+            echo "Could not fetch peer list. Using primary node only." . PHP_EOL;
+            $this->mining_nodes = [$this->node];
+            return;
+        }
+        $peers = json_decode($peers, true);
+        if ($peers['status'] != "ok") {
+            echo "Could not fetch peer list. Using primary node only." . PHP_EOL;
+            $this->mining_nodes = [$this->node];
+            return;
+        }
+        echo "Found " . count($peers['data']) . " potential peers. Verifying mining-enabled nodes..." . PHP_EOL;
+        $this->mining_nodes = [$this->node];
+        foreach($peers['data'] as $peer) {
+            if (!empty($peer['generator']) && !in_array($peer['hostname'], $this->mining_nodes)) {
+                $this->mining_nodes[] = $peer['hostname'];
+            }
+        }
+        echo "Verified " . count($this->mining_nodes) . " mining-enabled nodes: " . implode(", ", $this->mining_nodes) . PHP_EOL;
+    }
+
+    private function monitor($pids, $tmp_dir, $height) {
+        $start_time = time();
+        $header_printed = false;
+        while (count($pids) > 0) {
+            // Check for finished children
+            foreach ($pids as $key => $pid) {
+                $res = pcntl_waitpid($pid, $status, WNOHANG);
+                if ($res == -1 || $res > 0) {
+                    unset($pids[$key]);
+                }
+            }
+
+            if (time() - $start_time > $this->report_interval) {
+                $total_hashes = 0;
+                $total_submits = 0;
+                $total_accepted = 0;
+                $total_rejected = 0;
+                $total_dropped = 0;
+                $total_speed = 0;
+                $best_hit = 0;
+
+                $files = glob($tmp_dir . "/*.json");
+                foreach($files as $file) {
+                    $stats = json_decode(file_get_contents($file), true);
+                    if ($stats) {
+                        $total_hashes += $stats['hashes'];
+                        $total_submits += $stats['submits'];
+                        $total_accepted += $stats['accepted'];
+                        $total_rejected += $stats['rejected'];
+                        $total_dropped += $stats['dropped'];
+                        $total_speed += $stats['speed'];
+                        if ($stats['best_hit'] > $best_hit) {
+                            $best_hit = $stats['best_hit'];
+                        }
+                    }
+                }
+
+                if (!$header_printed) {
+                    echo sprintf(
+                        "%-6s %-7s %-5s %-8s %-10s %-10s %-10s %-5s %-5s %-5s %-5s" . PHP_EOL,
+                        "PID", "Height", "Elapsed", "Speed", "Hit", "Best", "Target", "Submits", "Accepted", "Rejected", "Dropped"
+                    );
+                    $header_printed = true;
+                }
+
+                $lines = 0;
+                foreach($files as $file) {
+                    $stats = json_decode(file_get_contents($file), true);
+                    if ($stats) {
+                        echo sprintf(
+                            "%-6s %-7s %-5s %-8s %-10s %-10s %-10s %-5s %-5s %-5s %-5s" . PHP_EOL,
+                            $stats['pid'], number_format($stats['height']), $stats['elapsed'], number_format($stats['speed']) . ' H/s', number_format($stats['hit']), number_format($stats['best_hit']), number_format($stats['target']),
+                            $stats['submits'], $stats['accepted'], $stats['rejected'], $stats['dropped']
+                        );
+                        $lines++;
+                    }
+                }
+
+                $start_time = time();
+            }
+
+            sleep(1);
+        }
+        echo PHP_EOL;
+    }
+
+    private function removeNode($node) {
+        if (($key = array_search($node, $this->mining_nodes)) !== false) {
+            unset($this->mining_nodes[$key]);
+        }
+    }
+
 
     /**
      * Starts the main mining loop.
      */
-	public function start() {
+	public function start($tmp_dir = null) {
 		$this->mining_stats = [
 			'started' => time(), 'hashes' => 0, 'submits' => 0,
 			'accepted' => 0, 'rejected' => 0, 'dropped' => 0,
@@ -304,7 +427,7 @@ class Miner {
 			}
 
 			$block = $this->initializeNewBlock($info);
-			$this->findBlockSolution($block, $info);
+			$this->findBlockSolution($block, $info, $tmp_dir);
 		}
 	}
 
@@ -327,19 +450,23 @@ class Miner {
 		return $block;
 	}
 
-	private function findBlockSolution($block, $info) {
+	private function findBlockSolution($block, $info, $tmp_dir = null) {
 		$this->attempt_count = 0;
 		$this->hashing_start_time = microtime(true);
+        $this->best_hit = 0;
 
-		$solution = $this->hashingLoop($block, $info['data']['date'], $info['data']['time'], $info['data']['chain_id']);
+		$solution = $this->hashingLoop($block, $info['data']['date'], $info['data']['time'], $info['data']['chain_id'], $tmp_dir);
 
 		if ($solution) {
 			$this->submitBlock($solution);
 		}
 	}
 
-	private function hashingLoop($block, $block_date, $nodeTime, $chain_id) {
+	private function hashingLoop($block, $block_date, $nodeTime, $chain_id, $tmp_dir = null) {
 		$offset = $nodeTime - time();
+        $last_report_time = 0;
+
+        $this->updateMiningStats($block->height, 0, 0, 0, $tmp_dir);
 
 		while (true) {
 			$this->attempt_count++;
@@ -360,10 +487,16 @@ class Miner {
 			$block->argon = Crypto::calculateArgonHash($this->address, $block_date, $elapsed, $block->height);
 			$block->nonce = Crypto::calculateNonce($block, $block_date, $elapsed, $chain_id);
 			$hit = Crypto::calculateHit($block);
+            if ($hit > $this->best_hit) {
+                $this->best_hit = $hit;
+            }
 			$target = Crypto::calculateTarget($block->difficulty, $elapsed);
 
 			$this->measureSpeed($hash_time_start);
-			$this->updateMiningStats($block->height, $elapsed, $hit, $target);
+            if (time() - $last_report_time > $this->report_interval) {
+                $this->updateMiningStats($block->height, $elapsed, $hit, $target, $tmp_dir);
+                $last_report_time = time();
+            }
 
 			if ($hit > 0 && $target > 0 && $hit > $target) {
 				return [
@@ -386,7 +519,7 @@ class Miner {
         $this->hash_count++;
         $total_time = $hash_time_end - $this->hashing_start_time;
         if($total_time > 0) {
-            $this->speed = number_format($this->hash_count / $total_time, 2);
+            $this->speed = round($this->hash_count / $total_time, 2);
         }
     }
 
@@ -414,33 +547,67 @@ class Miner {
 		];
 
 		$this->mining_stats['submits']++;
-		$response = Utils::url_post($this->node . "/mine.php?q=submitHash&", http_build_query($postData), 5);
-        $response_data = json_decode($response, true);
+        $accepted = false;
+        if (is_array($this->mining_nodes) && count($this->mining_nodes) > 0) {
+            foreach ($this->mining_nodes as $key => $node) {
+                $response = Utils::url_post($node . "/mine.php?q=submitHash&", http_build_query($postData), 5);
+                $response_data = json_decode($response, true);
+                if (json_last_error() === JSON_ERROR_NONE && isset($response_data['status']) && $response_data['status'] == "ok") {
+                    $accepted = true;
+                    break;
+                } else {
+                    if (isset($response_data['response']) && $response_data['response'] == "mining-not-enabled") {
+                        $this->removeNode($node);
+                    }
+                }
+            }
+        }
 
-		if (json_last_error() === JSON_ERROR_NONE && isset($response_data['status']) && $response_data['status'] == "ok") {
-			$this->mining_stats['accepted']++;
-		} else {
-			$this->mining_stats['rejected']++;
-		}
+        if ($accepted) {
+            $this->mining_stats['accepted']++;
+        } else {
+            $this->mining_stats['rejected']++;
+        }
 
 		sleep(3); // Wait before starting next block
-		file_put_contents(Utils::getStatFile(), json_encode($this->mining_stats));
+        $this->mining_stats['submitted_blocks'][] = [
+            "time" => date("r"),
+            "node" => $node,
+            "height" => $postData['height'],
+            "elapsed" => $postData['elapsed'],
+            "hashes" => $this->attempt_count,
+            "hit" => $postData['hit'],
+            "target" => $postData['target'],
+            "status" => $accepted ? "accepted" : "rejected",
+            "response" => @$response_data['data']
+        ];
+        file_put_contents(getcwd() . "/miner_stat.json", json_encode($this->mining_stats));
 	}
 
-	private function updateMiningStats($height, $elapsed, $hit, $target) {
-		$status = sprintf(
-			"PID:%-6s | Height:%-7s | Elapsed:%-5s | Speed:%-8s | Hit:%-10s | Target:%-10s | Submits:%-5s | Accepted:%-5s | Rejected:%-5s | Dropped:%-5s",
-			getmypid(), $height, $elapsed, $this->speed . ' H/s', $hit, $target,
-			$this->mining_stats['submits'], $this->mining_stats['accepted'],
-			$this->mining_stats['rejected'], $this->mining_stats['dropped']
-		);
-
-		if(!$this->is_forked && !$this->use_flat_log){
-			echo $status . "\r";
-		} else {
-			echo $status . PHP_EOL;
-		}
-		$this->mining_stats['hashes']++;
+	private function updateMiningStats($height, $elapsed, $hit, $target, $tmp_dir = null) {
+        $this->mining_stats['hashes']++;
+        $this->mining_stats['speed'] = $this->speed;
+        $this->mining_stats['best_hit'] = (string)$this->best_hit;
+        $this->mining_stats['pid'] = getmypid();
+        $this->mining_stats['height'] = $height;
+        $this->mining_stats['elapsed'] = $elapsed;
+        $this->mining_stats['hit'] = (string)$hit;
+        $this->mining_stats['target'] = (string)$target;
+        if ($this->is_forked) {
+            file_put_contents($tmp_dir . "/" . getmypid() . ".json", json_encode($this->mining_stats));
+        } else {
+            $status = sprintf(
+                "PID:%-6s Height:%-7s Elapsed:%-5s Speed:%-8s Hit:%-10s Best:%-10s Target:%-10s Submits:%-5s Accepted:%-5s Rejected:%-5s Dropped:%-5s",
+                getmypid(), number_format($height), $elapsed, number_format($this->speed) . ' H/s', number_format($hit), number_format($this->best_hit), number_format($target),
+                $this->mining_stats['submits'], $this->mining_stats['accepted'],
+                $this->mining_stats['rejected'], $this->mining_stats['dropped']
+            );
+            if (!$this->use_flat_log) {
+                echo $status . "\r";
+            } else {
+                echo $status . PHP_EOL;
+            }
+        }
 	}
 }
 
@@ -455,7 +622,18 @@ if (!$setup->isValid()) {
 }
 $config = $setup->getConfig();
 
+echo "PHPCoin Miner Version ".MINER_VERSION.PHP_EOL;
+echo "Mining server:  ".$config['node'].PHP_EOL;
+echo "Mining address: ".$config['address'].PHP_EOL;
+echo "CPU:            ".$config['cpu'].PHP_EOL;
+echo "Threads:        ".$config['threads'].PHP_EOL;
+echo "Report Interval:".$config['report-interval']." seconds".PHP_EOL;
+
 $miner = new Miner($config);
+
+$miner->getPeers();
+
+echo "Starting mining loop..." . PHP_EOL;
 
 if($config['threads'] == 1) {
     $miner->start();
