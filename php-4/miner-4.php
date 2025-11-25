@@ -465,7 +465,6 @@ class Miner {
 	}
 
 	private function hashingLoop($block, $block_date, $nodeTime, $chain_id, $tmp_dir = null) {
-		$offset = $nodeTime - time();
         $last_report_time = 0;
 
         $this->updateMiningStats($block->height, 0, 0, 0, $tmp_dir);
@@ -479,7 +478,7 @@ class Miner {
 			usleep($this->sleep_time * 1000);
 
 			$now = time();
-			$elapsed = $now - $offset - $block_date;
+			$elapsed = $now - $block_date;
 
 			if ($elapsed <= 0) {
 				continue;
@@ -547,21 +546,43 @@ class Miner {
 			'minerInfo' => 'phpcoin-miner cli ' . VERSION, "version" => VERSION
 		];
 
+        // Log POST data to console
+        echo "Block {$solution['height']} Solved! POST data:" . PHP_EOL;
+        echo json_encode($postData, JSON_PRETTY_PRINT) . PHP_EOL;
+
 		$this->mining_stats['submits']++;
+
+        // Log "block-found" to miner_stat.json
+        $this->mining_stats['found_blocks'][] = [
+            "time" => date("r"),
+            "height" => $postData['height'],
+            "post_data" => $postData
+        ];
+        file_put_contents(getcwd() . "/miner_stat.json", json_encode($this->mining_stats));
+
+
         $accepted = false;
         $response_data = null;
-        $node_to_submit = null;
 
         // Create an ordered list of nodes to try: main node first, then unique peers.
         $nodes_to_try = array_unique(array_merge([$this->node], $this->mining_nodes));
 
         foreach ($nodes_to_try as $node) {
-            $node_to_submit = $node;
             $response = Utils::url_post($node . "/mine.php?q=submitHash&", http_build_query($postData), 5);
             $response_data = json_decode($response, true);
 
             $result_message = "Result: " . ($response_data['data'] ?? $response_data['message'] ?? 'No response');
-            echo "Block {$solution['height']} Solved! POST to: {$node} {$result_message}" . PHP_EOL;
+            echo "POST to: {$node} {$result_message}" . PHP_EOL;
+
+            // Log each submission attempt
+            $this->mining_stats['submission_attempts'][] = [
+                "time" => date("r"),
+                "node" => $node,
+                "height" => $postData['height'],
+                "response" => $response_data
+            ];
+            file_put_contents(getcwd() . "/miner_stat.json", json_encode($this->mining_stats));
+
 
             if (json_last_error() === JSON_ERROR_NONE && isset($response_data['status']) && $response_data['status'] == "ok") {
                 $accepted = true;
@@ -581,18 +602,6 @@ class Miner {
         }
 
 		sleep(3); // Wait before starting next block
-        $this->mining_stats['submitted_blocks'][] = [
-            "time" => date("r"),
-            "node" => $node_to_submit,
-            "height" => $postData['height'],
-            "elapsed" => $postData['elapsed'],
-            "hashes" => $this->attempt_count,
-            "hit" => $postData['hit'],
-            "target" => $postData['target'],
-            "status" => $accepted ? "accepted" : "rejected",
-            "response" => @$response_data['data']
-        ];
-        file_put_contents(getcwd() . "/miner_stat.json", json_encode($this->mining_stats));
 	}
 
 	private function updateMiningStats($height, $elapsed, $hit, $target, $tmp_dir = null) {
