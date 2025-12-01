@@ -10,7 +10,6 @@
 #include <stdbool.h>
 #include <getopt.h>
 #include <ctype.h>
-
 #include "miner_core.h"
 
 // --- Global State ---
@@ -33,17 +32,6 @@ struct memory {
     size_t size;
 };
 
-// To hold statistics for each thread
-typedef struct {
-    int id;
-    long height;
-    int elapsed;
-    double speed;
-    mpz_t hit;
-    mpz_t best_hit;
-    mpz_t target;
-    atomic_long hashes;
-} thread_stats_t;
 
 thread_stats_t* mining_stats = NULL;
 
@@ -294,7 +282,7 @@ void* miner_thread(void* arg) {
         stats->height = data->height;
         stats->elapsed = elapsed;
 
-        char* argon = calculate_argon_hash(data->address, data->block_date, elapsed, data->height);
+        char* argon = calculate_argon_hash(data->address, data->block_date, elapsed, data->height, stats);
         if (!argon) continue;
 
         char* nonce = calculate_nonce(data->address, data->block_date, elapsed, argon);
@@ -307,12 +295,13 @@ void* miner_thread(void* arg) {
         calculate_target(target, elapsed, data->difficulty);
 
         // --- Update stats ---
+        pthread_mutex_lock(&stats->stat_mutex);
         mpz_set(stats->hit, hit);
         mpz_set(stats->target, target);
         if (mpz_cmp(hit, stats->best_hit) > 0) {
             mpz_set(stats->best_hit, hit);
         }
-        atomic_fetch_add(&stats->hashes, 1);
+        pthread_mutex_unlock(&stats->stat_mutex);
         // --- End of stats update ---
 
         if (mpz_cmp(hit, target) > 0) {
@@ -486,6 +475,7 @@ int main(int argc, char** argv) {
             mining_stats[i].id = i + 1;
             atomic_init(&mining_stats[i].hashes, 0);
             mpz_inits(mining_stats[i].hit, mining_stats[i].best_hit, mining_stats[i].target, NULL);
+            pthread_mutex_init(&mining_stats[i].stat_mutex, NULL);
 
             data->thread_id = i + 1;
             data->address = address;
@@ -499,12 +489,17 @@ int main(int argc, char** argv) {
             pthread_create(&threads[i], NULL, miner_thread, data);
         }
 
-        time_t last_report_time = time(NULL);
+        struct timespec last_report_time;
+        clock_gettime(CLOCK_MONOTONIC, &last_report_time);
         bool header_printed = false;
 
         while (!block_found) {
             sleep(1);
-            if (time(NULL) - last_report_time >= report_interval) {
+            struct timespec now;
+            clock_gettime(CLOCK_MONOTONIC, &now);
+            double interval = (now.tv_sec - last_report_time.tv_sec) + (now.tv_nsec - last_report_time.tv_nsec) / 1e9;
+
+            if (interval >= report_interval) {
                 if (!flat_log && header_printed) {
                      // Move cursor up by num_threads lines
                     printf("\033[%dA", num_threads);
@@ -518,10 +513,7 @@ int main(int argc, char** argv) {
                     header_printed = true;
                 }
 
-                time_t now = time(NULL);
-                double interval = (now - last_report_time);
                 if (interval < 1) interval = 1;
-
 
                 for (int i = 0; i < num_threads; i++) {
                     long thread_hashes = atomic_exchange(&mining_stats[i].hashes, 0);
@@ -530,13 +522,15 @@ int main(int argc, char** argv) {
                     snprintf(speed_str, sizeof(speed_str), "%.1f H/s", mining_stats[i].speed);
 
                     char hit_str[32], best_hit_str[32], target_str[32];
+                    pthread_mutex_lock(&mining_stats[i].stat_mutex);
                     gmp_sprintf(hit_str, "%Zd", mining_stats[i].hit);
                     gmp_sprintf(best_hit_str, "%Zd", mining_stats[i].best_hit);
                     gmp_sprintf(target_str, "%Zd", mining_stats[i].target);
+                    pthread_mutex_unlock(&mining_stats[i].stat_mutex);
 
 
                     printf("%-6d %-7ld %-5d %-8s %-10s %-10s %-10s %-5d %-5d %-5d %-5d\n",
-                        mining_stats[i].id,
+                        getpid(),
                         mining_stats[i].height,
                         mining_stats[i].elapsed,
                         speed_str,
@@ -558,6 +552,7 @@ int main(int argc, char** argv) {
         for (int i = 0; i < num_threads; i++) {
             pthread_join(threads[i], NULL);
             mpz_clears(mining_stats[i].hit, mining_stats[i].best_hit, mining_stats[i].target, NULL);
+            pthread_mutex_destroy(&mining_stats[i].stat_mutex);
         }
 
         if(found_solution) {
