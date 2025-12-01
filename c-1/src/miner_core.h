@@ -36,9 +36,11 @@ typedef struct {
  * @return A dynamically allocated string with the encoded Argon2 hash. The caller must free this string.
  */
 #include <stdatomic.h>
+#include <sys/types.h>
 
 typedef struct {
     int id;
+    pid_t pid;
     long height;
     int elapsed;
     double speed;

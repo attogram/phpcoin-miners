@@ -3,6 +3,7 @@
 #include <string.h>
 #include <pthread.h>
 #include <unistd.h>
+#include <sys/syscall.h>
 #include <curl/curl.h>
 #include <gmp.h>
 #include <stdatomic.h>
@@ -264,6 +265,7 @@ int submit_block(const char* node, const char* address, const solution_t* soluti
 void* miner_thread(void* arg) {
     thread_data_t* data = (thread_data_t*)arg;
     thread_stats_t* stats = data->stats;
+    stats->pid = syscall(SYS_gettid);
 
     mpz_t hit, target;
     mpz_inits(hit, target, NULL);
@@ -530,7 +532,7 @@ int main(int argc, char** argv) {
 
 
                     printf("%-6d %-7ld %-5d %-8s %-10s %-10s %-10s %-5d %-5d %-5d %-5d\n",
-                        getpid(),
+                        mining_stats[i].pid,
                         mining_stats[i].height,
                         mining_stats[i].elapsed,
                         speed_str,
