@@ -3,6 +3,18 @@
 
 #include <gmp.h>
 
+// To hold a found block solution
+typedef struct {
+    char* argon;
+    char* nonce;
+    long height;
+    mpz_t difficulty;
+    long date;
+    mpz_t hit;
+    mpz_t target;
+    int elapsed;
+} solution_t;
+
 // Constants from the PHPCoin source
 #define BLOCK_TIME 60
 #define BLOCK_TARGET_MUL 1000
@@ -22,7 +34,7 @@
  * @param elapsed The number of seconds elapsed since the previous block.
  * @return A dynamically allocated string with the encoded Argon2 hash. The caller must free this string.
  */
-char* calculate_argon_hash(long prev_block_date, int elapsed);
+char* calculate_argon_hash(const char* miner_address, long prev_block_date, int elapsed, long height);
 
 /**
  * @brief Calculates the nonce for a block attempt.
