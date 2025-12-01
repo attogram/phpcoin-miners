@@ -3,6 +3,7 @@
 
 #include <gmp.h>
 #include <pthread.h>
+#include <stdint.h>
 
 // To hold a found block solution
 typedef struct {
@@ -51,7 +52,7 @@ typedef struct {
     pthread_mutex_t stat_mutex;
 } thread_stats_t;
 
-char* calculate_argon_hash(const char* miner_address, long prev_block_date, int elapsed, long height, thread_stats_t* stats);
+char* calculate_argon_hash(const char* miner_address, long prev_block_date, int elapsed, long height, thread_stats_t* stats, uint64_t nonce);
 
 /**
  * @brief Calculates the nonce for a block attempt.
