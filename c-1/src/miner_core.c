@@ -111,12 +111,12 @@ void calculate_hit(mpz_t result, const char* miner_address, const char* nonce, l
     unsigned char hash2[SHA256_DIGEST_LENGTH];
     SHA256(hash1, sizeof(hash1), hash2);
 
-    // Take the first 8 bytes (64 bits) of the final hash
-    char hash_part_hex[17];
-    for(int i = 0; i < 8; i++) {
+    // Take the first 4 bytes (32 bits) of the final hash, like php-4
+    char hash_part_hex[9];
+    for(int i = 0; i < 4; i++) {
         sprintf(hash_part_hex + i * 2, "%02x", hash2[i]);
     }
-    hash_part_hex[16] = 0;
+    hash_part_hex[8] = 0;
 
     mpz_t value;
     mpz_init_set_str(value, hash_part_hex, 16);
