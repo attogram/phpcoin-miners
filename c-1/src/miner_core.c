@@ -18,7 +18,8 @@ static void sha256_to_hex(const unsigned char* hash, char* hex_string) {
     hex_string[64] = 0;
 }
 
-char* calculate_argon_hash(const char* miner_address, long prev_block_date, int elapsed, long height) {
+char* calculate_argon_hash(const char* miner_address, long prev_block_date, int elapsed, long height, thread_stats_t* stats) {
+    atomic_fetch_add(&stats->hashes, 1);
     char base[256];
     snprintf(base, sizeof(base), "%ld-%d", prev_block_date, elapsed);
 
