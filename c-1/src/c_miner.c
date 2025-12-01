@@ -7,6 +7,7 @@
 #include <gmp.h>
 #include <stdatomic.h>
 #include <time.h>
+#include <stdbool.h>
 
 #include "miner_core.h"
 
@@ -14,6 +15,8 @@
 atomic_bool block_found = ATOMIC_VAR_INIT(false);
 atomic_long total_hashes = ATOMIC_VAR_INIT(0);
 pthread_mutex_t console_mutex = PTHREAD_MUTEX_INITIALIZER;
+solution_t* found_solution = NULL; // Will hold the solution
+pthread_mutex_t solution_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // --- Data Structures ---
 
@@ -32,6 +35,7 @@ typedef struct {
     long block_date;
     mpz_t difficulty;
 } thread_data_t;
+
 
 
 // --- Networking (libcurl) ---
@@ -121,6 +125,57 @@ int get_mining_info(const char* node, long* height, mpz_t difficulty, long* date
     return 0;
 }
 
+int submit_block(const char* node, const char* address, const solution_t* solution) {
+    CURL *curl;
+    CURLcode res;
+    struct memory chunk = {0};
+    char url[256];
+    char post_fields[1024];
+
+    char* hit_str = mpz_get_str(NULL, 10, solution->hit);
+    char* target_str = mpz_get_str(NULL, 10, solution->target);
+    char* difficulty_str = mpz_get_str(NULL, 10, solution->difficulty);
+
+    snprintf(url, sizeof(url), "%s/mine.php?q=submitHash", node);
+    snprintf(post_fields, sizeof(post_fields),
+        "argon=%s&nonce=%s&height=%ld&difficulty=%s&address=%s&hit=%s&target=%s&date=%ld&elapsed=%d&minerInfo=phpcoin-c-miner&version=1.6.8",
+        solution->argon, solution->nonce, solution->height, difficulty_str, address,
+        hit_str, target_str, solution->date, solution->elapsed);
+
+    free(hit_str);
+    free(target_str);
+    free(difficulty_str);
+
+    curl = curl_easy_init();
+    if (curl) {
+        curl_easy_setopt(curl, CURLOPT_URL, url);
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, post_fields);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
+
+        res = curl_easy_perform(curl);
+        if (res != CURLE_OK) {
+            fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+            curl_easy_cleanup(curl);
+            free(chunk.response);
+            return 0;
+        }
+
+        pthread_mutex_lock(&console_mutex);
+        printf("\nSubmission response: %s\n", chunk.response);
+        pthread_mutex_unlock(&console_mutex);
+
+        // Basic check for "ok" status in response
+        int success = (strstr(chunk.response, "\"status\":\"ok\"") != NULL);
+
+        free(chunk.response);
+        curl_easy_cleanup(curl);
+        return success;
+    }
+    return 0;
+}
+
 
 // --- Mining Thread ---
 
@@ -137,7 +192,7 @@ void* miner_thread(void* arg) {
         int elapsed = current_time - data->block_date;
         if (elapsed < 0) elapsed = 0;
 
-        char* argon = calculate_argon_hash(data->block_date, elapsed);
+        char* argon = calculate_argon_hash(data->address, data->block_date, elapsed, data->height);
         if (!argon) continue;
 
         char* nonce = calculate_nonce(data->address, data->block_date, elapsed, argon);
@@ -150,17 +205,34 @@ void* miner_thread(void* arg) {
         calculate_target(target, elapsed, data->difficulty);
 
         if (mpz_cmp(hit, target) > 0) {
-            block_found = true;
+            // Use a mutex to ensure only one thread can set the solution
+            pthread_mutex_lock(&solution_mutex);
+            if (!block_found) { // Double check after acquiring the lock
+                block_found = true;
+                found_solution = malloc(sizeof(solution_t));
+                mpz_inits(found_solution->difficulty, found_solution->hit, found_solution->target, NULL);
+                found_solution->argon = argon; // Transfer ownership of the memory
+                found_solution->nonce = nonce; // Transfer ownership of the memory
+                found_solution->height = data->height;
+                mpz_set(found_solution->difficulty, data->difficulty);
+                found_solution->date = data->block_date + elapsed;
+                mpz_set(found_solution->hit, hit);
+                mpz_set(found_solution->target, target);
+                found_solution->elapsed = elapsed;
 
-            pthread_mutex_lock(&console_mutex);
-            printf("\n\n!!! BLOCK FOUND BY THREAD %d !!!\n", data->thread_id);
-            gmp_printf("Height: %ld\nNonce: %s\nHit: %Zd\nTarget: %Zd\n\n",
-                data->height, nonce, hit, target);
-            pthread_mutex_unlock(&console_mutex);
+                pthread_mutex_lock(&console_mutex);
+                printf("\n\n!!! BLOCK FOUND BY THREAD %d !!!\n", data->thread_id);
+                gmp_printf("Height: %ld\nNonce: %s\nHit: %Zd\nTarget: %Zd\n\n",
+                    found_solution->height, found_solution->nonce, found_solution->hit, found_solution->target);
+                pthread_mutex_unlock(&console_mutex);
+            }
+             pthread_mutex_unlock(&solution_mutex);
         }
 
-        free(argon);
-        free(nonce);
+        if(!block_found) {
+            free(argon);
+            free(nonce);
+        }
         attempts++;
 
         // Update global hash counter every second
@@ -168,6 +240,23 @@ void* miner_thread(void* arg) {
             atomic_fetch_add(&total_hashes, attempts);
             attempts = 0;
             last_update = current_time;
+        }
+
+        // Check for a new block on the network every 10 attempts
+        if (attempts % 10 == 0) {
+            long current_network_height;
+            mpz_t temp_difficulty;
+            mpz_init(temp_difficulty);
+            long temp_date;
+            if (get_mining_info(data->node, &current_network_height, temp_difficulty, &temp_date)) {
+                if (current_network_height > data->height) {
+                    pthread_mutex_lock(&console_mutex);
+                    printf("\nNew block detected on the network. Restarting miner...\n");
+                    pthread_mutex_unlock(&console_mutex);
+                    block_found = true; // Signal main loop to restart
+                }
+            }
+            mpz_clear(temp_difficulty);
         }
     }
 
@@ -243,28 +332,66 @@ int main(int argc, char** argv) {
         pthread_create(&threads[i], NULL, miner_thread, data);
     }
 
-    time_t start_time = time(NULL);
-    while (!block_found) {
-        sleep(1);
-        long current_hashes = atomic_exchange(&total_hashes, 0);
-        time_t now = time(NULL);
-        double elapsed_sec = difftime(now, start_time);
-        if (elapsed_sec < 1) elapsed_sec = 1;
+    while(1) { // Main loop to allow restarting after a block is found
+        printf("Fetching initial mining info from %s...\n", node);
+        if (!get_mining_info(node, &height, difficulty, &block_date)) {
+            fprintf(stderr, "Failed to get mining info. Retrying in 10 seconds.\n");
+            sleep(10);
+            continue;
+        }
 
-        double hash_rate = (double)current_hashes;
-        pthread_mutex_lock(&console_mutex);
-        printf("Hash Rate: %.2f H/s\r", hash_rate);
-        fflush(stdout);
-        pthread_mutex_unlock(&console_mutex);
+        gmp_printf("Starting miner for address %s\nHeight: %ld\nDifficulty: %Zd\nThreads: %d\n",
+            address, height, difficulty, num_threads);
+        printf("---------------------------------------------------\n");
+
+
+        pthread_t* threads = malloc(sizeof(pthread_t) * num_threads);
+        block_found = false;
+        atomic_store(&total_hashes, 0);
+        if(found_solution) {
+            mpz_clears(found_solution->difficulty, found_solution->hit, found_solution->target, NULL);
+            free(found_solution->argon);
+            free(found_solution->nonce);
+            free(found_solution);
+            found_solution = NULL;
+        }
+
+
+        for (int i = 0; i < num_threads; i++) {
+            thread_data_t* data = malloc(sizeof(thread_data_t));
+            data->thread_id = i + 1;
+            data->address = address;
+            data->node = node;
+            data->height = height;
+            data->block_date = block_date;
+            mpz_init_set(data->difficulty, difficulty);
+
+            pthread_create(&threads[i], NULL, miner_thread, data);
+        }
+
+        time_t start_time = time(NULL);
+        while (!block_found) {
+            sleep(1);
+            long current_hashes = atomic_exchange(&total_hashes, 0);
+            double hash_rate = (double)current_hashes;
+            pthread_mutex_lock(&console_mutex);
+            printf("Hash Rate: %.2f H/s\r", hash_rate);
+            fflush(stdout);
+            pthread_mutex_unlock(&console_mutex);
+        }
+
+        for (int i = 0; i < num_threads; i++) {
+            pthread_join(threads[i], NULL);
+        }
+
+        if(found_solution) {
+            submit_block(node, address, found_solution);
+            printf("Submission attempted. Waiting 5 seconds before starting next block...\n");
+            sleep(5);
+        }
+
+        free(threads);
     }
-
-    for (int i = 0; i < num_threads; i++) {
-        pthread_join(threads[i], NULL);
-    }
-
-    printf("\nMiner stopped.\n");
-
-    free(threads);
     mpz_clear(difficulty);
     return 0;
 }

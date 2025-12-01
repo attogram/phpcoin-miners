@@ -18,22 +18,35 @@ static void sha256_to_hex(const unsigned char* hash, char* hex_string) {
     hex_string[64] = 0;
 }
 
-char* calculate_argon_hash(long prev_block_date, int elapsed) {
+char* calculate_argon_hash(const char* miner_address, long prev_block_date, int elapsed, long height) {
     char base[256];
     snprintf(base, sizeof(base), "%ld-%d", prev_block_date, elapsed);
 
-    // Generate a cryptographically secure random salt, just like PHP's password_hash does
     unsigned char salt[SALT_LEN];
-    if (RAND_bytes(salt, sizeof(salt)) != 1) {
-        fprintf(stderr, "Error: Failed to generate random salt.\n");
-        return NULL;
+    uint32_t t_cost, m_cost, parallelism;
+
+    if (height < 1614556800L) { // Legacy hashing for old blocks (UPDATE_3_ARGON_HARD)
+        t_cost = 2;
+        m_cost = 2048;
+        parallelism = 1;
+        // Use the first 16 bytes of the address as the salt
+        strncpy((char*)salt, miner_address, SALT_LEN);
+    } else { // Modern hashing
+        t_cost = ARGON2_T_COST;
+        m_cost = ARGON2_M_COST;
+        parallelism = ARGON2_PARALLELISM;
+        // Generate a cryptographically secure random salt
+        if (RAND_bytes(salt, sizeof(salt)) != 1) {
+            fprintf(stderr, "Error: Failed to generate random salt.\n");
+            return NULL;
+        }
     }
 
     uint32_t hash_len = 32;
     size_t encoded_len = argon2_encodedlen(
-        ARGON2_T_COST,
-        ARGON2_M_COST,
-        ARGON2_PARALLELISM,
+        t_cost,
+        m_cost,
+        parallelism,
         sizeof(salt),
         hash_len,
         Argon2_i
@@ -46,9 +59,9 @@ char* calculate_argon_hash(long prev_block_date, int elapsed) {
     }
 
     int result = argon2i_hash_encoded(
-        ARGON2_T_COST,
-        ARGON2_M_COST,
-        ARGON2_PARALLELISM,
+        t_cost,
+        m_cost,
+        parallelism,
         base, strlen(base),
         salt, sizeof(salt),
         hash_len,
