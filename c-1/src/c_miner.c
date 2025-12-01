@@ -9,6 +9,7 @@
 #include <stdatomic.h>
 #include <time.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <getopt.h>
 #include <ctype.h>
 #include "miner_core.h"
@@ -271,6 +272,7 @@ void* miner_thread(void* arg) {
     mpz_inits(hit, target, NULL);
 
     long sleep_time = (100 - data->cpu_usage) * 500;
+    uint64_t thread_nonce = 0;
 
 
     while (!block_found) {
@@ -284,7 +286,7 @@ void* miner_thread(void* arg) {
         stats->height = data->height;
         stats->elapsed = elapsed;
 
-        char* argon = calculate_argon_hash(data->address, data->block_date, elapsed, data->height, stats);
+        char* argon = calculate_argon_hash(data->address, data->block_date, elapsed, data->height, stats, thread_nonce);
         if (!argon) continue;
 
         char* nonce = calculate_nonce(data->address, data->block_date, elapsed, argon);
@@ -295,6 +297,8 @@ void* miner_thread(void* arg) {
 
         calculate_hit(hit, data->address, nonce, data->height, data->difficulty);
         calculate_target(target, elapsed, data->difficulty);
+
+        thread_nonce++;
 
         // --- Update stats ---
         pthread_mutex_lock(&stats->stat_mutex);
@@ -356,6 +360,7 @@ void* miner_thread(void* arg) {
             mpz_clear(temp_difficulty);
         }
     }
+
     mpz_clears(hit, target, NULL);
     free(data); // Free the thread-specific data
     return NULL;
