@@ -1,5 +1,2 @@
 *.conf
 miner_stat.json
-/c-1/c_miner*
-/c-1/src/*.o
-*.log
