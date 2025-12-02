@@ -5,6 +5,7 @@
 #include <openssl/sha.h>
 #include <openssl/rand.h> // For generating the salt
 #include <argon2.h>
+#include <stdint.h>
 #include "miner_core.h"
 
 // Constants
@@ -18,15 +19,16 @@ static void sha256_to_hex(const unsigned char* hash, char* hex_string) {
     hex_string[64] = 0;
 }
 
-char* calculate_argon_hash(const char* miner_address, long prev_block_date, int elapsed, long height, thread_stats_t* stats) {
+char* calculate_argon_hash(const char* miner_address, long prev_block_date, int elapsed, long height, thread_stats_t* stats, uint64_t nonce) {
     atomic_fetch_add(&stats->hashes, 1);
     char base[256];
     snprintf(base, sizeof(base), "%ld-%d", prev_block_date, elapsed);
 
     unsigned char salt[SALT_LEN];
     uint32_t t_cost, m_cost, parallelism;
+    long current_block_date = prev_block_date + elapsed;
 
-    if (height < 1614556800L) { // Legacy hashing for old blocks (UPDATE_3_ARGON_HARD)
+    if (current_block_date < 1614556800L) { // Legacy hashing for old blocks (UPDATE_3_ARGON_HARD)
         t_cost = 2;
         m_cost = 2048;
         parallelism = 1;
@@ -36,11 +38,20 @@ char* calculate_argon_hash(const char* miner_address, long prev_block_date, int 
         t_cost = ARGON2_T_COST;
         m_cost = ARGON2_M_COST;
         parallelism = ARGON2_PARALLELISM;
-        // Generate a cryptographically secure random salt
-        if (RAND_bytes(salt, sizeof(salt)) != 1) {
-            fprintf(stderr, "Error: Failed to generate random salt.\n");
-            return NULL;
-        }
+
+        // --- New Salt Generation ---
+        // We create a deterministic, unique salt for each hash attempt by hashing
+        // a combination of the miner's address, the block height, and a per-thread nonce.
+        // This ensures that each thread is working on unique data, mirroring the behavior
+        // of PHP's password_hash, which generates a random salt for each call.
+        char salt_base[512];
+        snprintf(salt_base, sizeof(salt_base), "%s-%ld-%llu", miner_address, height, (unsigned long long)nonce);
+
+        unsigned char salt_hash[SHA256_DIGEST_LENGTH];
+        SHA256((unsigned char*)salt_base, strlen(salt_base), salt_hash);
+
+        // The final salt is the first 16 bytes of the SHA256 hash.
+        memcpy(salt, salt_hash, SALT_LEN);
     }
 
     uint32_t hash_len = 32;
