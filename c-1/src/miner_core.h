@@ -48,11 +48,11 @@ typedef struct {
     mpz_t hit;
     mpz_t best_hit;
     mpz_t target;
-    atomic_long hashes;
+    uint64_t local_hashes;
     pthread_mutex_t stat_mutex;
 } thread_stats_t;
 
-char* calculate_argon_hash(const char* miner_address, long prev_block_date, int elapsed, long height, thread_stats_t* stats, uint64_t nonce);
+char* calculate_argon_hash(const char* miner_address, long prev_block_date, int elapsed, long height, uint64_t nonce);
 
 /**
  * @brief Calculates the nonce for a block attempt.
