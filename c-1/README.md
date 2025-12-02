@@ -23,7 +23,7 @@ A `Makefile` is provided for easy compilation. All compiled binaries are statica
 
 To compile the miner:
 ```bash
-cd utils/minerv2
+cd c-1
 make all
 ```
 
@@ -32,7 +32,7 @@ make all
 The compiled `c_miner` executable is a standalone, multi-threaded miner. To run it, you need to provide the node URL, your PHPCoin address, and the desired number of threads.
 
 ```bash
-cd utils/minerv2
+cd c-1
 ./c_miner -n <node_url> -a <your_address> -t <num_threads>
 
 # Example:
