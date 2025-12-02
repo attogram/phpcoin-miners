@@ -286,9 +286,10 @@ void* miner_thread(void* arg) {
         stats->height = data->height;
         stats->elapsed = elapsed;
 
-        char* argon = calculate_argon_hash(data->address, data->block_date, elapsed, data->height, stats, thread_nonce);
+        char* argon = calculate_argon_hash(data->address, data->block_date, elapsed, data->height, thread_nonce);
         if (!argon) continue;
 
+        stats->local_hashes++;
         thread_nonce++;
 
         char* nonce = calculate_nonce(data->address, data->block_date, elapsed, argon);
@@ -341,7 +342,7 @@ void* miner_thread(void* arg) {
         }
 
         // Check for a new block on the network every 10 attempts
-        if (atomic_load(&stats->hashes) % 10 == 0) {
+        if (thread_nonce % 10 == 0) {
             long current_network_height;
             mpz_t temp_difficulty;
             mpz_init(temp_difficulty);
@@ -479,7 +480,7 @@ int main(int argc, char** argv) {
         for (int i = 0; i < num_threads; i++) {
             thread_data_t* data = malloc(sizeof(thread_data_t));
             mining_stats[i].id = i + 1;
-            atomic_init(&mining_stats[i].hashes, 0);
+            mining_stats[i].local_hashes = 0;
             mpz_inits(mining_stats[i].hit, mining_stats[i].best_hit, mining_stats[i].target, NULL);
             pthread_mutex_init(&mining_stats[i].stat_mutex, NULL);
 
@@ -522,7 +523,13 @@ int main(int argc, char** argv) {
                 if (interval < 1) interval = 1;
 
                 for (int i = 0; i < num_threads; i++) {
-                    long thread_hashes = atomic_exchange(&mining_stats[i].hashes, 0);
+                    // This is an intentional data race. The master prompt prioritizes performance
+                    // by removing all synchronization from the hot path. The worker thread
+                    // increments local_hashes without a lock, and the main thread reads/resets
+                    // it here without a lock. This may result in minor inaccuracies in the
+                    // reported hash rate, which is an accepted trade-off.
+                    long thread_hashes = mining_stats[i].local_hashes;
+                    mining_stats[i].local_hashes = 0;
                     mining_stats[i].speed = (double)thread_hashes / interval;
                     char speed_str[16];
                     snprintf(speed_str, sizeof(speed_str), "%.1f H/s", mining_stats[i].speed);
