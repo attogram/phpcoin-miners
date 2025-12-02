@@ -27,7 +27,8 @@ char* calculate_argon_hash(const char* miner_address, long prev_block_date, int 
     unsigned char salt[SALT_LEN];
     uint32_t t_cost, m_cost, parallelism;
 
-    if (height < 1614556800L) { // Legacy hashing for old blocks (UPDATE_3_ARGON_HARD)
+    long current_block_date = prev_block_date + elapsed;
+    if (current_block_date < 1614556800L) { // Legacy hashing for old blocks (UPDATE_3_ARGON_HARD)
         t_cost = 2;
         m_cost = 2048;
         parallelism = 1;
