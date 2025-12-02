@@ -44,8 +44,9 @@ char* calculate_argon_hash(const char* miner_address, long prev_block_date, int 
         // a combination of the miner's address, the block height, and a per-thread nonce.
         // This ensures that each thread is working on unique data, mirroring the behavior
         // of PHP's password_hash, which generates a random salt for each call.
+        uint64_t salt_nonce = nonce / 1000;
         char salt_base[512];
-        snprintf(salt_base, sizeof(salt_base), "%s-%ld-%llu", miner_address, height, (unsigned long long)nonce);
+        snprintf(salt_base, sizeof(salt_base), "%s-%ld-%llu", miner_address, height, (unsigned long long)salt_nonce);
 
         unsigned char salt_hash[SHA256_DIGEST_LENGTH];
         SHA256((unsigned char*)salt_base, strlen(salt_base), salt_hash);
