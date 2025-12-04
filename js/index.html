@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JS Miner</title>
+    <style>
+        body { font-family: sans-serif; margin: 2em; background-color: #f4f4f9; color: #333; }
+        .container { max-width: 900px; margin: 0 auto; }
+        h1 { text-align: center; color: #444; }
+        .card { border: 1px solid #ddd; border-radius: 8px; margin-bottom: 1.5em; background-color: #fff; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .card-header { background-color: #f7f7f7; padding: 1em; font-weight: bold; border-bottom: 1px solid #ddd; border-radius: 8px 8px 0 0; }
+        .card-body { padding: 1.5em; }
+        .card-footer { background-color: #f7f7f7; padding: 1em; border-top: 1px solid #ddd; border-radius: 0 0 8px 8px; }
+        .form-group { margin-bottom: 1em; }
+        label { display: block; margin-bottom: 0.5em; font-weight: 500; }
+        input[type="text"], input[type="range"] { width: 100%; padding: 0.75em; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
+        button { padding: 0.75em 1.5em; cursor: pointer; border: none; border-radius: 4px; color: #fff; }
+        #startButton { background-color: #28a745; }
+        #stopButton { background-color: #dc3545; }
+        #resetStatsButton { background-color: #ffc107; color: #333; }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 1em; }
+        .stat-card { padding: 1em; text-align: center; border-radius: 5px; color: #fff; }
+        .stat-card-label { font-size: 0.9em; }
+        .stat-card-value { font-size: 1.5em; font-weight: bold; }
+        #chart-container { margin-top: 1em; }
+        canvas { width: 100%; background-color: #fafafa; border: 1px solid #ddd; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>JS Miner</h1>
+
+        <div class="card">
+            <div class="card-header">
+                <h4>Configuration</h4>
+            </div>
+            <div id="miningConfig" class="card-body">
+                <div class="form-group">
+                    <label for="node">Node URL</label>
+                    <input type="text" id="node" value="http://">
+                </div>
+                <div class="form-group">
+                    <label for="address">Mining Address</label>
+                    <input type="text" id="address" placeholder="Enter your address">
+                </div>
+            </div>
+            <div class="card-footer">
+                <button id="startButton">Start</button>
+                <button id="stopButton" style="display: none;">Stop</button>
+                <span id="miningAddress" style="margin-left: 1em; font-weight: bold;"></span>
+            </div>
+        </div>
+
+        <div id="running-section" style="display: none;">
+            <div class="card">
+                 <div class="card-body">
+                    <div class="form-group">
+                        <label for="cpu">CPU Usage: <span id="cpuValue">50</span>%</label>
+                        <input type="range" id="cpu" min="0" max="100" value="50">
+                    </div>
+                    <div>
+                        <strong>Speed:</strong> <span id="speed">0</span> H/s
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-7">
+                    <div class="card">
+                        <div class="card-header">
+                            <h4>Mining Chart</h4>
+                        </div>
+                        <div class="card-body" id="chart-container">
+                            <canvas id="chart" width="800" height="400"></canvas>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-5">
+                    <div class="card">
+                        <div class="card-header">
+                            <h4>Mining Stats</h4>
+                        </div>
+                        <div class="card-body">
+                            <div class="stats-grid">
+                                <div class="stat-card" style="background-color: #17a2b8;"><div class="stat-card-label">Block</div><div id="stat-height" class="stat-card-value">0</div></div>
+                                <div class="stat-card" style="background-color: #17a2b8;"><div class="stat-card-label">Elapsed</div><div id="stat-elapsed" class="stat-card-value">0</div></div>
+                                <div class="stat-card" style="background-color: #17a2b8;"><div class="stat-card-label">Hit</div><div id="stat-hit" class="stat-card-value">0</div></div>
+                                <div class="stat-card" style="background-color: #17a2b8;"><div class="stat-card-label">Target</div><div id="stat-target" class="stat-card-value">0</div></div>
+                                <div class="stat-card" style="background-color: #6c757d;"><div class="stat-card-label">Rounds</div><div id="stat-rounds" class="stat-card-value">0</div></div>
+                                <div class="stat-card" style="background-color: #6c757d;"><div class="stat-card-label">Hashes</div><div id="stat-hashes" class="stat-card-value">0</div></div>
+                                <div class="stat-card" style="background-color: #6c757d;"><div class="stat-card-label">Submits</div><div id="stat-submits" class="stat-card-value">0</div></div>
+                                <div class="stat-card" style="background-color: #28a745;"><div class="stat-card-label">Accepted</div><div id="stat-accepted" class="stat-card-value">0</div></div>
+                                <div class="stat-card" style="background-color: #dc3545;"><div class="stat-card-label">Rejected</div><div id="stat-rejected" class="stat-card-value">0</div></div>
+                                 <div class="stat-card" style="background-color: #ffc107; color: #333;"><div class="stat-card-label">Dropped</div><div id="stat-dropped" class="stat-card-value">0</div></div>
+                            </div>
+                        </div>
+                        <div class="card-footer">
+                            <button id="resetStatsButton">Reset Stats</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const nodeInput = document.getElementById('node');
+            const addressInput = document.getElementById('address');
+            const startButton = document.getElementById('startButton');
+            const stopButton = document.getElementById('stopButton');
+            const miningAddressSpan = document.getElementById('miningAddress');
+            const runningSection = document.getElementById('running-section');
+            const cpuSlider = document.getElementById('cpu');
+            const cpuValueSpan = document.getElementById('cpuValue');
+            const speedSpan = document.getElementById('speed');
+            const resetStatsButton = document.getElementById('resetStatsButton');
+            const miningConfig = document.getElementById('miningConfig');
+
+            let webMiner = null;
+            let running = false;
+            let chart = null;
+
+            // Load saved settings
+            nodeInput.value = localStorage.getItem('node') || 'http://';
+            addressInput.value = localStorage.getItem('address') || '';
+            cpuSlider.value = localStorage.getItem('cpu') || 50;
+            cpuValueSpan.textContent = cpuSlider.value;
+
+            const hashingConfig = {
+                mem: 32768,
+                time: 2,
+                parallelism: 1
+            };
+
+            function setupMiner() {
+                webMiner = new Worker('miner.js');
+                webMiner.addEventListener('message', (e) => {
+                    const { cmd, event, data, response } = e.data;
+                    if (cmd === 'EVENT') {
+                        if (event === 'onMinerUpdate') {
+                            updateStats(data.miner);
+                            updateMiningStat(data.miningStat);
+                            if (data.miner.attempt === 0) {
+                                resetChart(data.miner.block_date);
+                            } else {
+                                updateChart(data.miner);
+                            }
+                        }
+                    } else if (cmd === 'checkAddressResponse') {
+                        if (!response) {
+                            alert('Address not found. You must have a recorded transaction on the blockchain to start mining.');
+                        } else {
+                            running = true;
+                            miningConfig.style.display = 'none';
+                            runningSection.style.display = 'block';
+                            startButton.style.display = 'none';
+                            stopButton.style.display = 'inline-block';
+                            miningAddressSpan.textContent = `Mining Address: ${addressInput.value}`;
+                            webMiner.postMessage({ cmd: 'START' });
+                        }
+                    }
+                }, false);
+
+                const options = {
+                    cpu: cpuSlider.value,
+                    hashingConfig,
+                    block_time: 60,
+                    miningStat: JSON.parse(localStorage.getItem('miningStat')) || {},
+                    development: false
+                };
+
+                webMiner.postMessage({
+                    cmd: 'INIT',
+                    params: {
+                        node: nodeInput.value,
+                        address: addressInput.value,
+                        options
+                    }
+                });
+            }
+
+            startButton.addEventListener('click', () => {
+                const address = addressInput.value.trim();
+                const node = nodeInput.value.trim();
+                if (!address) {
+                    alert('Please enter a valid address.');
+                    return;
+                }
+                if (!node) {
+                    alert('Please enter a valid node URL.');
+                    return;
+                }
+                localStorage.setItem('address', address);
+                localStorage.setItem('node', node);
+                localStorage.setItem('cpu', cpuSlider.value);
+                setupMiner();
+                webMiner.postMessage({ cmd: 'checkAddress', params: { address } });
+            });
+
+            stopButton.addEventListener('click', () => {
+                running = false;
+                miningConfig.style.display = 'block';
+                runningSection.style.display = 'none';
+                startButton.style.display = 'inline-block';
+                stopButton.style.display = 'none';
+                miningAddressSpan.textContent = '';
+                if (webMiner) {
+                    webMiner.postMessage({ cmd: 'STOP' });
+                    webMiner.terminate();
+                    webMiner = null;
+                }
+            });
+
+            cpuSlider.addEventListener('input', () => {
+                const cpu = cpuSlider.value;
+                cpuValueSpan.textContent = cpu;
+                localStorage.setItem('cpu', cpu);
+                if (webMiner) {
+                    webMiner.postMessage({ cmd: 'updateCpu', params: { cpu } });
+                }
+            });
+
+            resetStatsButton.addEventListener('click', () => {
+                if (confirm('Are you sure you want to reset all statistics?')) {
+                    localStorage.removeItem('miningStat');
+                    if (webMiner) {
+                        webMiner.postMessage({ cmd: 'resetStat' });
+                    }
+                    updateMiningStat(null);
+                }
+            });
+
+            function updateStats(miner) {
+                speedSpan.textContent = miner.speed;
+                document.getElementById('stat-height').textContent = miner.height;
+                document.getElementById('stat-elapsed').textContent = miner.elapsed;
+                document.getElementById('stat-hit').textContent = miner.hit;
+                document.getElementById('stat-target').textContent = miner.target;
+            }
+
+            function updateMiningStat(stat) {
+                const miningStat = stat || {};
+                localStorage.setItem('miningStat', JSON.stringify(miningStat));
+
+                document.getElementById('stat-rounds').textContent = miningStat.cnt || 0;
+                document.getElementById('stat-hashes').textContent = miningStat.hashes || 0;
+                document.getElementById('stat-submits').textContent = miningStat.submits || 0;
+                document.getElementById('stat-accepted').textContent = miningStat.accepted || 0;
+                document.getElementById('stat-rejected').textContent = miningStat.rejected || 0;
+                document.getElementById('stat-dropped').textContent = miningStat.dropped || 0;
+            }
+
+            // Charting logic using Canvas API
+            const canvas = document.getElementById('chart');
+            const ctx = canvas.getContext('2d');
+            let chartData = {
+                labels: [],
+                datasets: [
+                    {
+                        label: 'Hit',
+                        borderColor: 'rgba(255, 99, 132, 1)',
+                        data: [],
+                        fill: false,
+                        steppedLine: true
+                    },
+                    {
+                        label: 'Target',
+                        borderColor: 'rgba(54, 162, 235, 1)',
+                        data: [],
+                        fill: false
+                    }
+                ]
+            };
+            let blockStartTime = 0;
+
+            function drawChart() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                if (chartData.labels.length === 0) return;
+
+                const maxValue = Math.max(...chartData.datasets[0].data, ...chartData.datasets[1].data);
+                const xScale = canvas.width / (chartData.labels.length -1 || 1);
+                const yScale = canvas.height / maxValue;
+
+                ctx.lineWidth = 2;
+
+                // Draw Hit data
+                ctx.beginPath();
+                ctx.strokeStyle = chartData.datasets[0].borderColor;
+                chartData.datasets[0].data.forEach((value, index) => {
+                    const x = index * xScale;
+                    const y = canvas.height - value * yScale;
+                     if (index === 0) {
+                        ctx.moveTo(x, y);
+                    } else {
+                        const prevX = (index - 1) * xScale;
+                        const prevY = canvas.height - chartData.datasets[0].data[index - 1] * yScale;
+                        ctx.lineTo(prevX, y);
+                        ctx.lineTo(x, y);
+                    }
+                });
+                ctx.stroke();
+
+                // Draw Target data
+                ctx.beginPath();
+                ctx.strokeStyle = chartData.datasets[1].borderColor;
+                 chartData.datasets[1].data.forEach((value, index) => {
+                    const x = index * xScale;
+                    const y = canvas.height - value * yScale;
+                    if (index === 0) {
+                        ctx.moveTo(x, y);
+                    } else {
+                        ctx.lineTo(x, y);
+                    }
+                });
+                ctx.stroke();
+
+                 // Draw Target time line
+                const targetTimeX = (60 * 1000) / (Date.now() - blockStartTime) * canvas.width;
+                 if(targetTimeX < canvas.width) {
+                    ctx.beginPath();
+                    ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+                    ctx.moveTo(targetTimeX, 0);
+                    ctx.lineTo(targetTimeX, canvas.height);
+                    ctx.stroke();
+                    ctx.fillStyle = 'black';
+                    ctx.fillText('Target Time', targetTimeX + 5, 10);
+                }
+            }
+
+
+            function resetChart(start) {
+                blockStartTime = start * 1000;
+                chartData.labels = [];
+                chartData.datasets[0].data = [];
+                chartData.datasets[1].data = [];
+                drawChart();
+            }
+
+            function updateChart(miner) {
+                const now = Date.now();
+                chartData.labels.push(now);
+                chartData.datasets[0].data.push(miner.hit);
+                chartData.datasets[1].data.push(miner.target);
+
+                 // Keep the chart to a reasonable size
+                const maxDataPoints = 100;
+                if (chartData.labels.length > maxDataPoints) {
+                    chartData.labels.shift();
+                    chartData.datasets.forEach(ds => ds.data.shift());
+                }
+
+                drawChart();
+            }
+        });
+    </script>
+</body>
+</html>
