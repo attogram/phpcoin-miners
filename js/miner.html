@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Standalone Miner</title>
+    <title>PHPCoin Web Miner v0.0.4</title>
     <style>
         body {
             font-family: sans-serif;
@@ -36,7 +36,7 @@
     </style>
 </head>
 <body>
-    <h1>PHPCoin Web Miner <span style="font-size: 0.5em;">v0.0.3</span></h1>
+    <h1>PHPCoin Web Miner <span style="font-size: 0.5em;">v0.0.4</span></h1>
     <div>
         <label for="node">Node:</label>
         <input type="text" id="node" placeholder="Enter node URL">
@@ -58,15 +58,15 @@
         <h2>Stats</h2>
         <p>Speed: <span id="speed">0</span> H/s</p>
         <p>Hashes: <span id="hashes">0</span></p>
+		<p>Block: <span id="height">0</span></p>
+        <p>Elapsed: <span id="elapsed">0</span></p>
+		<p>Hit: <span id="hit">0</span></p>
+        <p>Target: <span id="target">0</span></p>
         <p>Submits: <span id="submits">0</span></p>
         <p>Accepted: <span id="accepted">0</span></p>
         <p>Rejected: <span id="rejected">0</span></p>
         <p>Dropped: <span id="dropped">0</span></p>
         <p>Rounds: <span id="rounds">0</span></p>
-        <p>Hit: <span id="hit">0</span></p>
-        <p>Target: <span id="target">0</span></p>
-        <p>Block: <span id="height">0</span></p>
-        <p>Elapsed: <span id="elapsed">0</span></p>
     </div>
 
     <div id="solved-blocks">
