@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>PHPCoin Web Miner v0.0.4</title>
+    <title>PHPCoin Web Miner v0.0.5</title>
     <style>
         body {
             font-family: sans-serif;
@@ -10,7 +10,11 @@
             align-items: center;
             padding: 20px;
         }
-        h1, h2 {
+        h1 {
+            text-align: center;
+            margin: 10px 0;
+        }
+        h2 {
             text-align: center;
         }
         div {
@@ -29,14 +33,23 @@
         }
         #stats {
             margin-top: 20px;
-            border: 1px solid #ccc;
-            padding: 10px;
             width: 400px;
+        }
+        #stats table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        #stats td {
+            border: 1px solid #ccc;
+            padding: 5px;
+        }
+        #stats td:first-child {
+            width: 80px;
         }
     </style>
 </head>
 <body>
-    <h1>PHPCoin Web Miner <span style="font-size: 0.5em;">v0.0.4</span></h1>
+    <h1>PHPCoin Web Miner <span style="font-size: 0.5em;">v0.0.5</span></h1>
     <div>
         <label for="node">Node:</label>
         <input type="text" id="node" placeholder="Enter node URL">
@@ -55,18 +68,21 @@
         <button id="stop" disabled>Stop</button>
     </div>
     <div id="stats">
-        <h2>Stats</h2>
-        <p>Speed: <span id="speed">0</span> H/s</p>
-        <p>Hashes: <span id="hashes">0</span></p>
-		<p>Block: <span id="height">0</span></p>
-        <p>Elapsed: <span id="elapsed">0</span></p>
-		<p>Hit: <span id="hit">0</span></p>
-        <p>Target: <span id="target">0</span></p>
-        <p>Submits: <span id="submits">0</span></p>
-        <p>Accepted: <span id="accepted">0</span></p>
-        <p>Rejected: <span id="rejected">0</span></p>
-        <p>Dropped: <span id="dropped">0</span></p>
-        <p>Rounds: <span id="rounds">0</span></p>
+        <table>
+            <tr><td>Node:</td><td id="stat-node"></td></tr>
+            <tr><td>Miner:</td><td id="stat-miner"></td></tr>
+            <tr><td>Speed:</td><td><span id="speed">0</span> H/s</td></tr>
+            <tr><td>Hashes:</td><td id="hashes">0</td></tr>
+            <tr><td>Block:</td><td id="height">0</td></tr>
+            <tr><td>Elapsed:</td><td id="elapsed">0</td></tr>
+            <tr><td>Hit:</td><td id="hit">0</td></tr>
+            <tr><td>Target:</td><td id="target">0</td></tr>
+            <tr><td>Submits:</td><td id="submits">0</td></tr>
+            <tr><td>Accepted:</td><td id="accepted">0</td></tr>
+            <tr><td>Rejected:</td><td id="rejected">0</td></tr>
+            <tr><td>Dropped:</td><td id="dropped">0</td></tr>
+            <tr><td>Rounds:</td><td id="rounds">0</td></tr>
+        </table>
     </div>
 
     <div id="solved-blocks">
@@ -35115,7 +35131,17 @@ self.addEventListener('message', function(e) {
             const targetSpan = document.getElementById("target");
             const heightSpan = document.getElementById("height");
             const elapsedSpan = document.getElementById("elapsed");
+            const statNode = document.getElementById("stat-node");
+            const statMiner = document.getElementById("stat-miner");
             const solvedBlocksTable = document.getElementById("solved-blocks-table").getElementsByTagName('tbody')[0];
+
+                function updateStaticStats() {
+                    statNode.textContent = nodeInput.value;
+                    statMiner.textContent = addressInput.value;
+                }
+
+                nodeInput.addEventListener("input", updateStaticStats);
+                addressInput.addEventListener("input", updateStaticStats);
 
             let webMiner = null;
             let running = false;
@@ -35192,6 +35218,8 @@ self.addEventListener('message', function(e) {
                 targetSpan.textContent = miner.target || "0";
                 heightSpan.textContent = miner.height || "0";
                 elapsedSpan.textContent = miner.elapsed || "0";
+                statNode.textContent = nodeInput.value;
+                statMiner.textContent = addressInput.value;
             }
 
             function logSolvedBlock(miner, status) {
@@ -35204,6 +35232,24 @@ self.addEventListener('message', function(e) {
                     <td style="border: 1px solid #ccc; padding: 5px;">${status}</td>
                 `;
             }
+
+            const urlParams = new URLSearchParams(window.location.search);
+            const node = urlParams.get('node');
+            const address = urlParams.get('address');
+            const cpu = urlParams.get('cpu');
+
+            if (node) {
+                nodeInput.value = node;
+            }
+            if (address) {
+                addressInput.value = address;
+            }
+            if (cpu) {
+                cpuInput.value = cpu;
+                cpuValue.textContent = cpu;
+            }
+
+            updateStaticStats();
         });
     </script>
 </body>
