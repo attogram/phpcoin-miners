@@ -1,18 +1,19 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>PHPCoin Web Miner v0.0.5</title>
+    <title>PHPCoin Web Miner v0.0.6</title>
     <style>
         body {
             font-family: sans-serif;
             display: flex;
             flex-direction: column;
             align-items: center;
-            padding: 20px;
+            padding: 0;
+			margin: 0;
         }
         h1 {
             text-align: center;
-            margin: 10px 0;
+            margin: 8px;
         }
         h2 {
             text-align: center;
@@ -49,14 +50,14 @@
     </style>
 </head>
 <body>
-    <h1>PHPCoin Web Miner <span style="font-size: 0.5em;">v0.0.5</span></h1>
+    <h1>PHPCoin Web Miner <span style="font-size: 0.5em;">v0.0.6</span></h1>
     <div>
         <label for="node">Node:</label>
         <input type="text" id="node" placeholder="Enter node URL">
     </div>
     <div>
         <label for="address">Address:</label>
-        <input type="text" id="address" placeholder="Enter your address">
+        <input type="text" id="address" placeholder="Enter your miner address">
     </div>
     <div>
         <label for="cpu">CPU:</label>
@@ -65,6 +66,7 @@
     </div>
     <div>
         <button id="start">Start</button>
+		&nbsp;
         <button id="stop" disabled>Stop</button>
     </div>
     <div id="stats">
@@ -118,9 +120,6 @@ function hex2coin(hash) {
     return Base58.encode(Buffer.from(hash, 'hex'))
 }
 
-function sortTx (tx) {
-    return jsonKeySort.sort(tx)
-}
 
 class WebMiner {
 
@@ -338,7 +337,6 @@ class WebMiner {
                 this.miner.attempt = this.attempt
                 this.miner.new_block_date = new_block_date
                 this.miner.height = height
-                this.miner.elapsed = elapsed
 
                 salt = address.substr(0, 16)
                 if(info.data.hashingOptions) {
@@ -456,28 +454,6 @@ class WebMiner {
         return digits.reverse().join('');
     }
 
-    async getRewardTx(dst, val, date, public_key) {
-        let tx = {
-            dst, val,
-            fee: "0.00000000",
-            message: '',
-            type: 0,
-            date, public_key,
-            src: dst
-        }
-        let sig = this.signTx(tx)
-        tx.signature = sig
-        let data = `${tx.val}-${tx.fee}-${tx.dst}-${tx.message}-${tx.type}-${tx.public_key}-${tx.date}-${tx.signature}`
-        // console.log("data",data)
-        let hash = await this.sha256(data)
-        // console.log("hash_base64",hash)
-        hash = hex2coin(hash)
-        tx.id = hash
-        // console.log(hash)
-        tx = sortTx(tx)
-        return tx
-    }
-
     async getAddress() {
         let response = await axios({
             method: 'post',
@@ -491,14 +467,6 @@ class WebMiner {
         } else {
             return info.data
         }
-    }
-
-    signTx(tx) {
-        let data = `${tx.val}-${tx.fee}-${tx.dst}-${tx.message}-${tx.type}-${tx.public_key}-${tx.date}`
-        // console.log("sign data", data)
-        let sig = phpcoinCrypto.sign(data, this.privateKey)
-        // console.log("sig", sig)
-        return sig
     }
 
     async checkAddress(address) {
