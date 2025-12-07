@@ -35098,42 +35098,45 @@ self.addEventListener('message', function(e) {
             const statMiner = document.getElementById("stat-miner");
             const solvedBlocksTable = document.getElementById("solved-blocks-table").getElementsByTagName('tbody')[0];
 
-                function updateStaticStats() {
-                    const nodeUrl = nodeInput.value;
-                    const minerAddress = addressInput.value;
-
-                    statNode.innerHTML = '';
-                    const nodeLink = document.createElement('a');
-                    nodeLink.href = nodeUrl;
-                    nodeLink.target = '_blank';
-                    nodeLink.textContent = nodeUrl;
-                    statNode.appendChild(nodeLink);
-
-                    statMiner.innerHTML = '';
-                    const minerLink = document.createElement('a');
-                    minerLink.href = `${nodeUrl}/apps/explorer/address.php?address=${minerAddress}`;
-                    minerLink.target = '_blank';
-                    minerLink.textContent = minerAddress;
-                    statMiner.appendChild(minerLink);
-                }
-
-                nodeInput.addEventListener("input", updateStaticStats);
-                addressInput.addEventListener("input", updateStaticStats);
-
             let webMiner = null;
             let running = false;
 
-            cpuInput.addEventListener("input", () => {
-                cpuValue.textContent = cpuInput.value;
-                if (webMiner && running) {
-                    webMiner.postMessage({ cmd: "updateCpu", params: { cpu: cpuInput.value } });
-                }
-            });
+            function updateStaticStats() {
+                const nodeUrl = nodeInput.value;
+                const minerAddress = addressInput.value;
 
-            startButton.addEventListener("click", () => {
+                statNode.innerHTML = '';
+                const nodeLink = document.createElement('a');
+                nodeLink.href = nodeUrl;
+                nodeLink.target = '_blank';
+                nodeLink.textContent = nodeUrl;
+                statNode.appendChild(nodeLink);
+
+                statMiner.innerHTML = '';
+                const minerLink = document.createElement('a');
+                minerLink.href = `${nodeUrl}/apps/explorer/address.php?address=${minerAddress}`;
+                minerLink.target = '_blank';
+                minerLink.textContent = minerAddress;
+                statMiner.appendChild(minerLink);
+            }
+
+            function stopMiner() {
+                running = false;
+                startButton.disabled = false;
+                stopButton.disabled = true;
+                if (webMiner) {
+                    webMiner.postMessage({ cmd: "STOP" });
+                    webMiner.terminate();
+                    webMiner = null;
+                }
+            }
+
+            function startMiner() {
                 const address = addressInput.value.trim();
-                if (!address) {
-                    alert("Please enter a valid address.");
+                const nodeUrl = nodeInput.value.trim();
+                if (!address || !nodeUrl) {
+                    alert("Please enter a valid address and node URL.");
+                    stopMiner();
                     return;
                 }
                 running = true;
@@ -35157,7 +35160,7 @@ self.addEventListener('message', function(e) {
                     } else if (cmd === "checkAddressResponse") {
                         if (!response) {
                             alert("Address not found. You must have a recorded transaction on the blockchain to start mining.");
-                            stopButton.click();
+                            stopMiner();
                         } else {
                             webMiner.postMessage({ cmd: "START" });
                         }
@@ -35165,20 +35168,31 @@ self.addEventListener('message', function(e) {
                 });
 
                 const options = { cpu: cpuInput.value, slip: document.getElementById("slip").value, hashingConfig: { mem: 32768, time: 2, parallelism: 1 }, block_time: 60, development: false };
-                webMiner.postMessage({ cmd: "INIT", params: { node: nodeInput.value, address: address, options } });
+                webMiner.postMessage({ cmd: "INIT", params: { node: nodeUrl, address: address, options } });
                 webMiner.postMessage({ cmd: "checkAddress", params: { address: address } });
-            });
+            }
 
-            stopButton.addEventListener("click", () => {
-                running = false;
-                startButton.disabled = false;
-                stopButton.disabled = true;
-                if (webMiner) {
-                    webMiner.postMessage({ cmd: "STOP" });
-                    webMiner.terminate();
-                    webMiner = null;
+            function handleInputChange() {
+                updateStaticStats();
+                if (running) {
+                    stopMiner();
+                    startMiner();
+                }
+            }
+
+            nodeInput.addEventListener("input", handleInputChange);
+            addressInput.addEventListener("input", handleInputChange);
+
+            cpuInput.addEventListener("input", () => {
+                cpuValue.textContent = cpuInput.value;
+                if (webMiner && running) {
+                    webMiner.postMessage({ cmd: "updateCpu", params: { cpu: cpuInput.value } });
                 }
             });
+
+            startButton.addEventListener("click", startMiner);
+
+            stopButton.addEventListener("click", stopMiner);
 
             function updateStats(miner, miningStat) {
                 if (!miner || !miningStat) {
