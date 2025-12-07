@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>PHPCoin Web Miner v0.0.6</title>
+    <title>PHPCoin Web Miner v0.0.7</title>
     <style>
         body {
             font-family: sans-serif;
@@ -50,7 +50,7 @@
     </style>
 </head>
 <body>
-    <h1>PHPCoin Web Miner <span style="font-size: 0.5em;">v0.0.6</span></h1>
+    <h1>PHPCoin Web Miner <span style="font-size: 0.5em;">v0.0.7</span></h1>
     <div>
         <label for="node">Node:</label>
         <input type="text" id="node" placeholder="Enter node URL">
@@ -58,6 +58,10 @@
     <div>
         <label for="address">Address:</label>
         <input type="text" id="address" placeholder="Enter your miner address">
+    </div>
+    <div>
+        <label for="slip">Slip:</label>
+        <input type="text" id="slip" value="0">
     </div>
     <div>
         <label for="cpu">CPU:</label>
@@ -111,15 +115,9 @@
 const crypto = require('crypto')
 const axios = require('axios')
 const Base58 = require("base-58")
-const jsonKeySort = require("json-keys-sort")
 const phpcoinCrypto = require("phpcoin-crypto")
 
 const version = '1.3'
-
-function hex2coin(hash) {
-    return Base58.encode(Buffer.from(hash, 'hex'))
-}
-
 
 class WebMiner {
 
@@ -133,6 +131,7 @@ class WebMiner {
         }
         this.block_time = options.block_time || 60
         this.callbacks = callbacks
+        this.slip = parseInt(options.slip, 10) || 0;
         this.cpu = options.cpu || 0
         this.updateUITimer = null
         this.mineInfoTimer = null
@@ -257,7 +256,6 @@ class WebMiner {
             let height = parseInt(info.data.height) + 1
             let difficulty = info.data.difficulty
             let argon, nonceBase, calcNonce, hitBase, hashPart, hitValue, hit, target
-            let signatureBase, signature, json
             let submitResponse
             let calOffset = 0
             let blockFound = false
@@ -284,9 +282,6 @@ class WebMiner {
                 hit,
                 target,
                 blockFound,
-                signatureBase,
-                signature,
-                json,
                 version,
                 submitResponse,
                 attempt:this.attempt,
@@ -326,7 +321,7 @@ class WebMiner {
                 await new Promise(resolve => setTimeout(resolve, this.sleepTime));
 
                 now = Math.round(Date.now() / 1000)
-                elapsed = now + offset - block_date
+                elapsed = now + offset - block_date + this.slip
                 if (elapsed < 0) {
                     elapsed = 0
                 }
@@ -35104,8 +35099,22 @@ self.addEventListener('message', function(e) {
             const solvedBlocksTable = document.getElementById("solved-blocks-table").getElementsByTagName('tbody')[0];
 
                 function updateStaticStats() {
-                    statNode.textContent = nodeInput.value;
-                    statMiner.textContent = addressInput.value;
+                    const nodeUrl = nodeInput.value;
+                    const minerAddress = addressInput.value;
+
+                    statNode.innerHTML = '';
+                    const nodeLink = document.createElement('a');
+                    nodeLink.href = nodeUrl;
+                    nodeLink.target = '_blank';
+                    nodeLink.textContent = nodeUrl;
+                    statNode.appendChild(nodeLink);
+
+                    statMiner.innerHTML = '';
+                    const minerLink = document.createElement('a');
+                    minerLink.href = `${nodeUrl}/apps/explorer/address.php?address=${minerAddress}`;
+                    minerLink.target = '_blank';
+                    minerLink.textContent = minerAddress;
+                    statMiner.appendChild(minerLink);
                 }
 
                 nodeInput.addEventListener("input", updateStaticStats);
@@ -35155,7 +35164,7 @@ self.addEventListener('message', function(e) {
                     }
                 });
 
-                const options = { cpu: cpuInput.value, hashingConfig: { mem: 32768, time: 2, parallelism: 1 }, block_time: 60, development: false };
+                const options = { cpu: cpuInput.value, slip: document.getElementById("slip").value, hashingConfig: { mem: 32768, time: 2, parallelism: 1 }, block_time: 60, development: false };
                 webMiner.postMessage({ cmd: "INIT", params: { node: nodeInput.value, address: address, options } });
                 webMiner.postMessage({ cmd: "checkAddress", params: { address: address } });
             });
@@ -35175,6 +35184,7 @@ self.addEventListener('message', function(e) {
                 if (!miner || !miningStat) {
                     return;
                 }
+                const nodeUrl = nodeInput.value;
                 speedSpan.textContent = miner.speed || "0";
                 hashesSpan.textContent = miningStat.hashes || "0";
                 submitsSpan.textContent = miningStat.submits || "0";
@@ -35184,27 +35194,46 @@ self.addEventListener('message', function(e) {
                 roundsSpan.textContent = miningStat.cnt || "0";
                 hitSpan.textContent = miner.hit || "0";
                 targetSpan.textContent = miner.target || "0";
-                heightSpan.textContent = miner.height || "0";
+                heightSpan.innerHTML = '';
+                const heightLink = document.createElement('a');
+                heightLink.href = `${nodeUrl}/apps/explorer/block.php?height=${miner.height}`;
+                heightLink.target = '_blank';
+                heightLink.textContent = miner.height || "0";
+                heightSpan.appendChild(heightLink);
                 elapsedSpan.textContent = miner.elapsed || "0";
-                statNode.textContent = nodeInput.value;
-                statMiner.textContent = addressInput.value;
             }
 
             function logSolvedBlock(miner, status) {
                 const newRow = solvedBlocksTable.insertRow(0);
-                newRow.innerHTML = `
-                    <td style="border: 1px solid #ccc; padding: 5px;">${miner.height}</td>
-                    <td style="border: 1px solid #ccc; padding: 5px;">${miner.elapsed}</td>
-                    <td style="border: 1px solid #ccc; padding: 5px;">${miner.hit}</td>
-                    <td style="border: 1px solid #ccc; padding: 5px;">${miner.target}</td>
-                    <td style="border: 1px solid #ccc; padding: 5px;">${status}</td>
-                `;
+                const nodeUrl = nodeInput.value;
+                const heightCell = newRow.insertCell(0);
+                const elapsedCell = newRow.insertCell(1);
+                const hitCell = newRow.insertCell(2);
+                const targetCell = newRow.insertCell(3);
+                const statusCell = newRow.insertCell(4);
+
+                const heightLink = document.createElement('a');
+                heightLink.href = `${nodeUrl}/apps/explorer/block.php?height=${miner.height}`;
+                heightLink.target = '_blank';
+                heightLink.textContent = miner.height;
+
+                heightCell.appendChild(heightLink);
+                elapsedCell.textContent = miner.elapsed;
+                hitCell.textContent = miner.hit;
+                targetCell.textContent = miner.target;
+                statusCell.textContent = status;
+
+                for (let i = 0; i < newRow.cells.length; i++) {
+                    newRow.cells[i].style.border = "1px solid #ccc";
+                    newRow.cells[i].style.padding = "5px";
+                }
             }
 
             const urlParams = new URLSearchParams(window.location.search);
             const node = urlParams.get('node');
             const address = urlParams.get('address');
             const cpu = urlParams.get('cpu');
+            const slip = urlParams.get('slip');
 
             if (node) {
                 nodeInput.value = node;
@@ -35215,6 +35244,9 @@ self.addEventListener('message', function(e) {
             if (cpu) {
                 cpuInput.value = cpu;
                 cpuValue.textContent = cpu;
+            }
+            if (slip) {
+                document.getElementById("slip").value = slip;
             }
 
             updateStaticStats();
