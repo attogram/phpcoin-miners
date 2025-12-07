@@ -53,11 +53,11 @@
     <h1>PHPCoin Web Miner <span style="font-size: 0.5em;">v0.0.7</span></h1>
     <div>
         <label for="node">Node:</label>
-        <input type="text" id="node" placeholder="Enter node URL">
+        <input type="text" id="node" placeholder="Enter node URL" required>
     </div>
     <div>
         <label for="address">Address:</label>
-        <input type="text" id="address" placeholder="Enter your miner address">
+        <input type="text" id="address" placeholder="Enter your miner address" required>
     </div>
     <div>
         <label for="slip">Slip:</label>
@@ -69,7 +69,7 @@
         <span id="cpu-value">50</span>%
     </div>
     <div>
-        <button id="start">Start</button>
+        <button id="start" disabled>Start</button>
 		&nbsp;
         <button id="stop" disabled>Stop</button>
     </div>
@@ -35101,34 +35101,46 @@ self.addEventListener('message', function(e) {
             let webMiner = null;
             let running = false;
 
+            function validateInputs() {
+                const nodeUrl = nodeInput.value.trim();
+                const minerAddress = addressInput.value.trim();
+                startButton.disabled = !nodeUrl || !minerAddress || running;
+            }
+
             function updateStaticStats() {
                 const nodeUrl = nodeInput.value;
                 const minerAddress = addressInput.value;
 
                 statNode.innerHTML = '';
-                const nodeLink = document.createElement('a');
-                nodeLink.href = nodeUrl;
-                nodeLink.target = '_blank';
-                nodeLink.textContent = nodeUrl;
-                statNode.appendChild(nodeLink);
+                if (nodeUrl) {
+                    const nodeLink = document.createElement('a');
+                    nodeLink.href = nodeUrl;
+                    nodeLink.target = '_blank';
+                    nodeLink.textContent = nodeUrl;
+                    statNode.appendChild(nodeLink);
+                }
 
                 statMiner.innerHTML = '';
-                const minerLink = document.createElement('a');
-                minerLink.href = `${nodeUrl}/apps/explorer/address.php?address=${minerAddress}`;
-                minerLink.target = '_blank';
-                minerLink.textContent = minerAddress;
-                statMiner.appendChild(minerLink);
+                if (nodeUrl && minerAddress) {
+                    const minerLink = document.createElement('a');
+                    minerLink.href = `${nodeUrl}/apps/explorer/address.php?address=${minerAddress}`;
+                    minerLink.target = '_blank';
+                    minerLink.textContent = minerAddress;
+                    statMiner.appendChild(minerLink);
+                } else if (minerAddress) {
+                    statMiner.textContent = minerAddress;
+                }
             }
 
             function stopMiner() {
                 running = false;
-                startButton.disabled = false;
                 stopButton.disabled = true;
                 if (webMiner) {
                     webMiner.postMessage({ cmd: "STOP" });
                     webMiner.terminate();
                     webMiner = null;
                 }
+                validateInputs();
             }
 
             function startMiner() {
@@ -35136,12 +35148,11 @@ self.addEventListener('message', function(e) {
                 const nodeUrl = nodeInput.value.trim();
                 if (!address || !nodeUrl) {
                     alert("Please enter a valid address and node URL.");
-                    stopMiner();
                     return;
                 }
                 running = true;
-                startButton.disabled = true;
                 stopButton.disabled = false;
+                validateInputs();
 
                 const workerScript = document.getElementById("worker-script").textContent;
                 const workerBlob = new Blob([workerScript], { type: "text/javascript" });
@@ -35176,8 +35187,8 @@ self.addEventListener('message', function(e) {
                 updateStaticStats();
                 if (running) {
                     stopMiner();
-                    startMiner();
                 }
+                validateInputs();
             }
 
             nodeInput.addEventListener("input", handleInputChange);
@@ -35264,6 +35275,7 @@ self.addEventListener('message', function(e) {
             }
 
             updateStaticStats();
+            validateInputs();
         });
     </script>
 </body>
