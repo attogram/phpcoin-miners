@@ -4,11 +4,28 @@ This is a standalone Javascript miner that allows you to mine directly in your w
 
 ## How to Use
 
-1.  Open the `miner.html` file in your web browser.
-2.  Enter the URL of the node you want to connect to.
-3.  Enter your address.
-4.  Adjust the CPU usage slider to your desired level.
-5.  Click "Start" to begin mining.
+To avoid CORS issues when running the miner locally, you need to use a local web server. This project includes a simple PHP proxy to handle API requests.
+
+1.  **Start the PHP built-in web server:**
+
+    Open your terminal, navigate to the `js` directory, and run the following command:
+
+    ```bash
+    php -S localhost:8000
+    ```
+
+2.  **Open the miner in your browser:**
+
+    Navigate to `http://localhost:8000/miner.html` in your web browser.
+
+3.  **Enter Miner Details:**
+    *   **Node:** Enter the URL of the node you want to connect to.
+    *   **Address:** Enter your miner address.
+    *   **CPU:** Adjust the CPU usage slider to your desired level.
+
+4.  **Start Mining:**
+
+    Click the "Start" button to begin mining.
 
 ## Techy-Details
 
